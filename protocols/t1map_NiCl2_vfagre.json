@@ -1,0 +1,13 @@
+{ 
+    "output_folder": "T1T2Mapping_seqfiles/",
+    "file_name": "NiClT1Mapping",
+    "TE": [6e-3], 
+    "TR": 14e-3,
+    "fov_inplane": [256e-3, 256e-3],
+    "slice_thickness": 2e-3,
+    "matrix_size": [128, 128, 4],
+    "slice_orientation": "TRA",
+    "flip_angle": [1, 2, 3, 5, 10, 17, 30],
+    "slice_pos": [26e-3],
+    "readout_duration": 6.4e-3
+}
