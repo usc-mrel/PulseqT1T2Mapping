@@ -1,4 +1,13 @@
-# Required Python Packages:
+# Usage
+
+Protocol parameters should be given in .json format. They can be found under "protocols/" directory. Desired protocols should be input in the sequence design scripts. Currently there are 2 scripts:
+
+- MultiEchoSpinEcho2D.py 
+Implements a 2D MESE sequence to be used for T2 mapping.
+- VariableFlipAngleGRE3D.py
+Implements a multi flip angle 3D Gre sequence to be used for B1 and T1 mapping.
+
+## Required Python Packages:
 
 Non-exhaustive package list:
 
