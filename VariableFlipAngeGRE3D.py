@@ -1,12 +1,21 @@
- 
+# -------------------------------------------------------------------
+# Title: 3D Variable Flip Angle GRE, based on 3D GRE from pypulseq library.
+# Author: Bilal Tasdelen <tasdelen at usc dot edu>
+# -------------------------------------------------------------------
+
+## TODO:
+
 import numpy as np
 import pypulseq as pp
 import os
 import mplcursors
 import matplotlib.pyplot as plt
+from pypulseq.opts import Opts
 from pypulseq.make_trapezoid import make_trapezoid
 from pypulseq.calc_duration import calc_duration
 from pypulseq.make_label import make_label
+from pypulseq.make_delay import make_delay
+from pypulseq.calc_rf_center import calc_rf_center
 from utils.grad_timing import rnd2GRT
 import json
 from utils import seqplot
@@ -18,8 +27,11 @@ plot = True
 write_seq = True
 detailed_rep = False
 
+# param_filename = "t1map_both_vfagre"
+param_filename = "t1map_debug"
 # param_filename = "t1map_MnCl2_vfagre"
-param_filename = "t1map_NiCl2_vfagre"
+# param_filename = "t1map_NiCl2_vfagre"
+# param_filename = "b1map_vfa"
 
 # Load parameter file
 params = {}
@@ -37,8 +49,11 @@ alpha = params['flip_angle']
 # alpha = np.logspace(np.log2(1), np.log2(30),num=7,base=2)  # Flip angle
 # alpha = [60, 120]  # Flip angle
 
+Ndummy = params['Ndummy']
+
 slice_thickness = params['slice_thickness']  # Slice thickness
 fov = [*params['fov_inplane'], Nz*slice_thickness]  # Define FOV and resolution
+Nkz = Nz + params['kz_os_steps']
 TE  = params['TE'][0]  # Echo time
 TR  = params['TR']     # Repetition time
 
@@ -50,7 +65,7 @@ ro_duration = params['readout_duration']  # ADC duration
 seq_filename = params['file_name']
 seq_folder   = params['output_folder']
 
-rf_spoiling_inc = 117  # RF spoiling increment
+phi0 = 117  # RF spoiling increment
 
 
 # Grad axes
@@ -62,22 +77,21 @@ elif slice_orientation == "SAG":
     dir_ro, dir_pe, dir_ss = ("z", "y", "x")
 
 # Set system limits
-system = pp.Opts(
-    max_grad=15,
-    grad_unit="mT/m",
-    max_slew=40,
-    slew_unit="T/m/s",
-    rf_ringdown_time=10e-6,
-    rf_dead_time=100e-6,
-    # rf_raster_time=100e-9, # [s] (100 ns)
-    adc_dead_time=10e-6,
+system = Opts(
+    max_grad = 15, grad_unit="mT/m",
+    max_slew = 40, slew_unit="T/m/s",
+    grad_raster_time =  10e-6, # [s] ( 10 us)
+    rf_raster_time   =   1e-6, # [s] (  1 us)
+    rf_ringdown_time =  10e-6, # [s] ( 10 us)
+    rf_dead_time     = 100e-6, # [s] (100 us)
+    adc_dead_time    =  10e-6, # [s] ( 10 us)
 )
 
 # ======
 # CREATE EVENTS
 # ======
 # Create alpha-degree slice selection pulse and gradient
-tbwp = 4 # Time-BW product of sinc
+tbwp = 6 # Time-BW product of sinc
 Trf = 2e-3 # [s] RF duration
 BWrf = tbwp/Trf # RF BW
 gz_area = BWrf/fov[2] * Trf
@@ -128,7 +142,7 @@ phase_areas = -(np.arange(Ny) - Ny / 2) * delta_k
 if Nz == 1:
     areaZ = [-gz.area/2]
 else:
-    areaZ = np.arange(-np.ceil((Nz-1)/2),np.floor((Nz)/2))/fov[2] - gz.area/2 # Combine kz encoding and rephasing
+    areaZ = -(np.arange(0,Nkz) - Nkz/2)/(Nkz*slice_thickness) - gz.area/2 # Combine kz encoding and rephasing
 
 gz_enc_largest = pp.make_trapezoid(channel=dir_ss, area=np.max(np.abs(areaZ)), system=system)
 Tz_enc = pp.calc_duration(gz_enc_largest)
@@ -136,55 +150,95 @@ Tz_enc = pp.calc_duration(gz_enc_largest)
 
 # Gradient spoiling
 gx_spoil = pp.make_trapezoid(channel=dir_ro, area=2 * Nx * delta_k, system=system)
-gz_spoil = pp.make_trapezoid(channel=dir_ss, area=4 / slice_thickness, system=system)
+# gx_spoil = pp.make_trapezoid(channel=dir_ro, area=-gx.area/2, system=system)
+
+# gz_spoil = pp.make_trapezoid(channel=dir_ss, area=4 / slice_thickness, system=system)
 
 # Calculate timing
-delay_TE = rnd2GRT(
+TEd = rnd2GRT(
             TE
             - calc_duration(gz)/2
             - calc_duration(gx_pre, gz_enc_largest)
             - calc_duration(gx)/2
 )
-delay_TR = rnd2GRT(
+TRd = rnd2GRT(
             TR
             - TE
             - calc_duration(gz)/2
             - calc_duration(gx)/2
+            - calc_duration(gx_spoil, gz_enc_largest, gx_pre)
 )
 
-assert np.all(delay_TE >= 0), "Required TE can not be achieved."
-assert np.all(delay_TR >= pp.calc_duration(gx_spoil, gz_spoil)), "Required TR can not be achieved."
+assert np.all(TEd >= 0), "Required TE can not be achieved."
+assert np.all(TRd >= 0), "Required TR can not be achieved."
+
+delay_TE = make_delay(TEd)
+delay_TR = make_delay(TRd)
 
 rf_phase = 0
 rf_inc = 0
 
-seq = pp.Sequence()  # Create a new sequence object
+seq = pp.Sequence(system)  # Create a new sequence object
 
 seq.add_block(pp.make_label(label="REV", type="SET", value=1))
+
+# Register fixed grad events for speedup
+gx_pre.id = seq.register_grad_event(gx_pre)
+gx.id = seq.register_grad_event(gx)
 
 # ======
 # CONSTRUCT SEQUENCE
 # ======
 # Loop over slices
 for fa_i in range(len(alpha)):
-    rf[fa_i].freq_offset = gz.amplitude * z
+    rf[fa_i].freq_offset = gz.amplitude*z
     seq.add_block(pp.make_label(type="SET", label="SET", value=fa_i))
 
-    for kz_i in range(Nz):
-        #rf.freq_offset = gz.amplitude * slice_thickness * (s - (n_slices - 1) / 2)
+    # Run several TRs for driving the magnetization to steady-state
+    gz_enc = pp.make_trapezoid(channel=dir_ss,area=areaZ[int(Nkz/2)],duration=Tz_enc, system=system)
+    gz_rew = pp.make_trapezoid(channel=dir_ss,area=-(areaZ[int(Nkz/2)] + gz.area/2),duration=Tz_enc, system=system)
+
+    gy_pre = pp.make_trapezoid(channel=dir_pe,area=phase_areas[int(Ny/2)],duration=pp.calc_duration(gx_pre),system=system)
+
+    for dm_i in range(Ndummy):
+
+        rf[fa_i].phase_offset = 0.5*phi0*(dm_i*dm_i + dm_i + 2)*np.pi/180
+        adc.phase_offset = rf[fa_i].phase_offset
+
+        seq.add_block(rf[fa_i], gz)
+        
+        seq.add_block(delay_TE)
+
+        seq.add_block(gx_pre, gy_pre, gz_enc)
+
+
+        seq.add_block(gx)
+        gy_pre.amplitude = -gy_pre.amplitude
+
+
+        # seq.add_block(delay_TR, gx_spoil, gy_pre, gz_spoil)
+        seq.add_block(gx_spoil, gy_pre, gz_rew)
+        seq.add_block(delay_TR)
+
+
+    for kz_i in range(Nkz):
         # Loop over phase encodes and define sequence blocks
-        seq.add_block(make_label(type="SET", label="PAR", value=kz_i))
+        seq.add_block(make_label(type="SET", label="PAR", value=Nkz-kz_i-1))
+        kz_phase_offset = kz_i*2*np.pi*z/(Nkz*slice_thickness) - 2*np.pi*rf[fa_i].freq_offset*calc_rf_center(rf[fa_i])[0] # align the phase for off-center slices
 
         gz_enc = pp.make_trapezoid(channel=dir_ss,area=areaZ[kz_i],duration=Tz_enc, system=system)
+        gz_rew = pp.make_trapezoid(channel=dir_ss,area=-(areaZ[kz_i] + gz.area/2),duration=Tz_enc, system=system)
+
         gz_enc.id = seq.register_grad_event(gz_enc)
-        
+        gz_rew.id = seq.register_grad_event(gz_rew)
+        n = 0
+
         for ky_i in range(Ny):
             seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
-
-            rf[fa_i].phase_offset = rf_phase / 180 * np.pi
-            adc.phase_offset = rf_phase / 180 * np.pi
-            rf_inc = divmod(rf_inc + rf_spoiling_inc, 360.0)[1]
-            rf_phase = divmod(rf_phase + rf_inc, 360.0)[1]
+            # n = ky_i#ky_i+kz_i*Ny
+            n+=1
+            rf[fa_i].phase_offset = 0.5*phi0*(n*n + n + 2)*np.pi/180 + kz_phase_offset
+            adc.phase_offset = 0.5*phi0*(n*n + n + 2)*np.pi/180
 
             seq.add_block(rf[fa_i], gz)
             
@@ -195,14 +249,18 @@ for fa_i in range(len(alpha)):
                 system=system,
             )
             # seq.add_block(gx_pre, gy_pre, gz_reph)
-            seq.add_block(gx_pre, gy_pre, gz_enc)
+            seq.add_block(delay_TE)
 
-            seq.add_block(pp.make_delay(delay_TE))
+            seq.add_block(gx_pre, gy_pre, gz_enc)
 
             seq.add_block(gx, adc)
             gy_pre.amplitude = -gy_pre.amplitude
-            spoil_block_contents = [pp.make_delay(delay_TR), gx_spoil, gy_pre, gz_spoil]
-            seq.add_block(*spoil_block_contents)
+
+            # seq.add_block(delay_TR, gx_spoil, gy_pre, gz_spoil)
+            seq.add_block(gx_spoil, gy_pre, gz_rew)
+            seq.add_block(delay_TR)
+
+
 
 ok, error_report = seq.check_timing()
 
@@ -216,13 +274,15 @@ else:
 # VISUALIZATION
 # ======
 if plot:
-    seqplot.plot(seq, time_range=(0, 20*TR), time_disp="ms", grad_disp="mT/m", plot_now=True)
+    seqplot.plot(seq, time_range=((Ndummy+1)*TR, (Ndummy+21)*TR), time_disp="ms", grad_disp="mT/m", plot_now=True)
+    # (k_traj_adc, k_traj, t_excitation, t_refocusing, t_adc) = seq.calculate_kspace()
+    # pass
 
     # seq.plot(time_range=(0, 256*TR), time_disp="ms", grad_disp="mT/m", plot_now=False)
     # seq.plot_logical(label="lin", time_range=(0, 4*TR), time_disp="ms", grad_disp="mT/m", plot_now=False)
 
-    mplcursors.cursor()
-    plt.show()
+    # mplcursors.cursor()
+    # plt.show()
 
 if detailed_rep:
     print("\n===== Detailed Test Report =====\n")
@@ -236,6 +296,7 @@ if detailed_rep:
 if write_seq:
     # Prepare the sequence output for the scanner
     seq.set_definition(key="FOV", value=fov)
+    seq.set_definition(key="SliceThickness", value=fov[2])
     seq.set_definition(key="Name", value="vfagre3d")
     seq.set_definition(key="TE", value=TE)
     seq.set_definition(key="TR", value=TR)

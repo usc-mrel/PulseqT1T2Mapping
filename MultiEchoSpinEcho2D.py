@@ -22,23 +22,29 @@ from pypulseq.make_block_pulse import make_block_pulse
 from pypulseq.make_trapezoid import make_trapezoid
 from pypulseq.make_extended_trapezoid_area import make_extended_trapezoid_area
 from pypulseq.make_extended_trapezoid import make_extended_trapezoid
+from pypulseq.points_to_waveform import points_to_waveform
+from pypulseq.convert import convert
 from pypulseq.opts import Opts
 from pypulseq.Sequence.sequence import Sequence
 from utils.grad_timing import rnd2GRT
 from scipy.io import savemat
+from numpy import interp
+
+from bloch.bloch import bloch
+
 import json
 
 # ## **USER INPUTS**
 # 
 # These parameters are typically on the user interface of the scanner computer console 
 
-show_diag = False
+show_diag = True
 detailed_rep = False
+bloch_sim = True
+write_seq = False
 
-write_seq = True
-
-# param_filename = "mese_debug"
-param_filename = "t2map_MnCl2_mese"
+param_filename = "mese_debug"
+# param_filename = "t2map_MnCl2_mese"
 # param_filename = "t2map_NiCl2_mese"
 
 # Load parameter file
@@ -77,9 +83,17 @@ n_slices = len(z)
 # ## **SYSTEM LIMITS**
 # Set the hardware limits and initialize sequence object
 
-system = Opts(max_grad=15, grad_unit='mT/m', max_slew=40, slew_unit='T/m/s', 
-              grad_raster_time=10e-6, rf_ringdown_time=10e-6, 
-              rf_dead_time=100e-6)
+# Set system limits
+system = Opts(
+    max_grad = 15, grad_unit="mT/m",
+    max_slew = 40, slew_unit="T/m/s",
+    grad_raster_time =  10e-6, # [s] ( 10 us)
+    rf_raster_time   =   1e-6, # [s] (  1 us)
+    rf_ringdown_time =  10e-6, # [s] ( 10 us)
+    rf_dead_time     = 100e-6, # [s] (100 us)
+    adc_dead_time    =  10e-6, # [s] ( 10 us)
+)
+
 seq = Sequence(system)
 
 # Grad axes
@@ -106,6 +120,42 @@ rf90, gz90, gz_reph = make_sinc_pulse(flip_angle=flip90, system=system, duration
 
 gz90.channel = dir_ss
 gz_reph.channel = dir_ss
+
+if bloch_sim:
+    b1_orig = 100*rf90.signal/system.gamma
+    b1_t = rf90.t + rf90.delay
+    dt = system.rf_raster_time
+    t_end = calc_duration(gz90)
+
+    tt = np.arange(0, t_end, dt)
+    b1 = interp(tt, b1_t, b1_orig)
+    t1 = 1
+    t2 = 100e-3
+    df = 0
+    dp = 0
+    gzamps = np.array([0, gz90.amplitude, gz90.amplitude, 0])
+    gztimes = np.cumsum([0, gz90.rise_time, gz90.flat_time, gz90.fall_time])
+
+    g = convert(
+        points_to_waveform(
+            amplitudes=gzamps, times=gztimes, grad_raster_time=dt
+            )
+            , from_unit="Hz/m", to_unit="mT/m")/10
+
+    
+    mode = 2
+
+    mx_0 = 0
+    my_0 = 0
+    mz_0 = 1
+
+    mx, my, mz = bloch(b1, g, dt, t1, t2, df, dp, mode, mx_0, mx_0, mx_0)
+    plt.plot(mx)
+    plt.plot(my)
+    plt.plot(mz)
+    plt.legend(('Mx', 'My', 'Mz'))
+    plt.show()
+
                                  
 rf180, gz180, _ = make_sinc_pulse(flip_angle=flip180, system=system, 
                                   duration=2.5e-3, 
@@ -329,6 +379,9 @@ if detailed_rep:
 
 # ## **GENERATING `.SEQ` FILE**
 # Uncomment the code in the cell below to generate a `.seq` file and download locally.
+
+if bloch_sim:
+    pass
 
 
 if write_seq:

@@ -1,0 +1,15 @@
+{ 
+    "output_folder": "T1T2Mapping_seqfiles/",
+    "file_name": "BothT1Mapping",
+    "TE": [6e-3], 
+    "TR": 14e-3,
+    "fov_inplane": [256e-3, 256e-3],
+    "slice_thickness": 2e-3,
+    "kz_os_steps": 20,
+    "matrix_size": [128, 128, 40],
+    "slice_orientation": "TRA",
+    "flip_angle": [1.0, 1.763, 3.107, 5.477, 9.655, 17.019, 30.0],
+    "slice_pos": [44e-3],
+    "readout_duration": 6.4e-3,
+    "Ndummy": 50
+}
