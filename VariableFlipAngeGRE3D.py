@@ -16,15 +16,19 @@ from pypulseq.calc_duration import calc_duration
 from pypulseq.make_label import make_label
 from pypulseq.make_delay import make_delay
 from pypulseq.calc_rf_center import calc_rf_center
+from pypulseq.convert import convert
+from pypulseq.points_to_waveform import points_to_waveform
 from utils.grad_timing import rnd2GRT
 import json
 from utils import seqplot
+from bloch.bloch import bloch
+from numpy import interp
 
 # =============
 # USER OPTIONS
 # =============
 plot = True 
-write_seq = True
+write_seq = False
 detailed_rep = False
 
 # param_filename = "t1map_both_vfagre"
@@ -87,29 +91,28 @@ system = Opts(
     adc_dead_time    =  10e-6, # [s] ( 10 us)
 )
 
-# ======
+# ==============
 # CREATE EVENTS
-# ======
+# ==============
 # Create alpha-degree slice selection pulse and gradient
 tbwp = 6 # Time-BW product of sinc
 Trf = 2e-3 # [s] RF duration
-BWrf = tbwp/Trf # RF BW
-gz_area = BWrf/fov[2] * Trf
-
-
-# Calculate slice selection and rephasing
-gz = make_trapezoid(
-    channel=dir_ss, system=system, flat_time=Trf, flat_area=gz_area
-)
-# gz_reph = make_trapezoid(
-#     channel="z",
-#     system=system,
-#     area=-gz.area/2
-# )
 
 # Calculate and store rf pulses
 rf = []
-for fa_i in range(len(alpha)):
+rf_, gz, _ = pp.make_sinc_pulse(
+    flip_angle=alpha[0] * np.pi / 180,
+    duration=Trf,
+    slice_thickness=fov[2],
+    apodization=0.5,
+    time_bw_product=tbwp,
+    system=system,
+    return_gz=True,
+    use="excitation"
+)
+rf.append(rf_)
+
+for fa_i in range(1, len(alpha)):
     rf_ = pp.make_sinc_pulse(
         flip_angle=alpha[fa_i] * np.pi / 180,
         duration=Trf,
@@ -122,7 +125,96 @@ for fa_i in range(len(alpha)):
     )
     rf.append(rf_)
 
+# gz.delay = rf[0].delay - gz.rise_time
+
+# ------------------------
+# DEBUG: RF slice profile
+# Small-tip approx.
+# ------------------------
+
+rf_ft = np.abs(np.fft.fftshift(np.fft.fft(rf[0].signal, 4*rf[0].signal.shape[0])))
+freqz = np.fft.fftshift(np.fft.fftfreq(rf_ft.shape[0], system.rf_raster_time))
+
+zz = freqz/gz.amplitude + z
+
+plt.figure()
+plt.plot(zz*1e3, rf_ft/rf_ft[int(rf_ft.shape[0]/2)])
+
+plt.vlines(
+    x=z*1e3+np.array([-fov[2]/2 ,fov[2]/2])*1e3, 
+    ymin=[0, 0], ymax=[1, 1], 
+    linestyles='dashed', colors=['red'])
+
+plt.vlines(
+    x=z*1e3+np.array([-Nkz*slice_thickness/2 ,Nkz*slice_thickness/2])*1e3, 
+    ymin=[0, 0], ymax=[1, 1], 
+    linestyles='dashed', colors=['orange'])
+
+plt.xlim(z*1e3+np.array([-100, 100]))
+vialpos = z*1e3 - np.array([Nkz/2-20, Nkz/2-40])*slice_thickness*1e3
+
+plt.vlines(
+    x=vialpos, 
+    ymin=[0, 0], ymax=[1, 1], 
+    linestyles='dashed', colors=['green'])
+
+plt.xlabel('z [mm]')
+plt.ylabel('M [au]')
+plt.title('Slab Profile')
+plt.legend(['Slab Profile', 'Prescribed Slab', 'Encoded FoV', 'Approx. Vial Positions'])
+
+plt.show()
+
+# ------------------------
+# DEBUG: RF slice profile
+# Bloch sim
+# ------------------------
+
+# b1_orig = 100*rf[-1].signal/system.gamma
+# b1_t = rf[-1].t + rf[-1].delay
+# dt = system.rf_raster_time
+# t_end = calc_duration(gz)
+
+# tt = np.arange(0, t_end, dt)
+# b1 = interp(tt, b1_t, b1_orig)
+# t1 = 1
+# t2 = 100e-3
+# df = 0
+# dp = 0
+# gzamps = np.array([0, gz.amplitude, gz.amplitude, 0])
+# gztimes = np.cumsum([0, gz.rise_time, gz.flat_time, gz.fall_time])
+
+# g = convert(
+#     points_to_waveform(
+#         amplitudes=gzamps, times=gztimes, grad_raster_time=dt
+#         )
+#         , from_unit="Hz/m", to_unit="mT/m")/10
+
+
+# mode = 2
+
+# mx_0 = 0
+# my_0 = 0
+# mz_0 = 1
+
+# mx, my, mz = bloch(b1, g, dt, t1, t2, df, dp, mode, mx_0, mx_0, mx_0)
+# plt.figure()
+# plt.subplot(211)
+# plt.plot(tt, b1)
+# plt.subplot(212)
+# plt.plot(dt/2 + tt[:-1], g)
+
+# plt.figure()
+# plt.plot(tt, mx)
+# plt.plot(tt, my)
+# plt.plot(tt, mz)
+# plt.legend(('Mx', 'My', 'Mz'))
+# plt.show()
+
+# -----------------------------------------
 # Define other gradients and ADC events
+# -----------------------------------------
+
 delta_k = 1 / fov[0]
 gx = pp.make_trapezoid(
     channel=dir_ro, flat_area=Nx * delta_k, flat_time=ro_duration, system=system
