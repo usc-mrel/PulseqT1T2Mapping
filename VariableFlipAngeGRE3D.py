@@ -5,6 +5,8 @@
 
 ## TODO:
 
+from math import pi
+import sys
 import numpy as np
 import pypulseq as pp
 import os
@@ -100,7 +102,7 @@ Trf = 2e-3 # [s] RF duration
 
 # Calculate and store rf pulses
 rf = []
-rf_, gz, _ = pp.make_sinc_pulse(
+rf_, gz, gzr = pp.make_sinc_pulse(
     flip_angle=alpha[0] * np.pi / 180,
     duration=Trf,
     slice_thickness=fov[2],
@@ -110,6 +112,8 @@ rf_, gz, _ = pp.make_sinc_pulse(
     return_gz=True,
     use="excitation"
 )
+rf_.freq_offset = gz.amplitude*z
+
 rf.append(rf_)
 
 for fa_i in range(1, len(alpha)):
@@ -123,9 +127,8 @@ for fa_i in range(1, len(alpha)):
         return_gz=False,
         use="excitation"
     )
+    rf_.freq_offset = gz.amplitude*z
     rf.append(rf_)
-
-# gz.delay = rf[0].delay - gz.rise_time
 
 # ------------------------
 # DEBUG: RF slice profile
@@ -163,53 +166,57 @@ plt.ylabel('M [au]')
 plt.title('Slab Profile')
 plt.legend(['Slab Profile', 'Prescribed Slab', 'Encoded FoV', 'Approx. Vial Positions'])
 
-plt.show()
+# plt.show()
 
 # ------------------------
 # DEBUG: RF slice profile
 # Bloch sim
 # ------------------------
 
-# b1_orig = 100*rf[-1].signal/system.gamma
-# b1_t = rf[-1].t + rf[-1].delay
-# dt = system.rf_raster_time
-# t_end = calc_duration(gz)
+b1_orig = rf[-1].signal*np.exp(1j*2*pi*rf[-1].freq_offset*rf[-1].t) # [Hz]
+b1_t    = rf[-1].t + rf[-1].delay # [s]
+dt      = system.rf_raster_time # [s]
+t_end   = calc_duration(rf[-1], gz) + calc_duration(gzr) # [s]
 
-# tt = np.arange(0, t_end, dt)
-# b1 = interp(tt, b1_t, b1_orig)
-# t1 = 1
-# t2 = 100e-3
-# df = 0
-# dp = 0
-# gzamps = np.array([0, gz.amplitude, gz.amplitude, 0])
-# gztimes = np.cumsum([0, gz.rise_time, gz.flat_time, gz.fall_time])
+tt = np.arange(0, t_end, dt) # [s]
+b1 = 10e3*interp(tt, b1_t, b1_orig)/system.gamma # [Hz] -> [G]
 
-# g = convert(
-#     points_to_waveform(
-#         amplitudes=gzamps, times=gztimes, grad_raster_time=dt
-#         )
-#         , from_unit="Hz/m", to_unit="mT/m")/10
+gzamps  = 100*np.array([0, gz.amplitude, gz.amplitude, 0, gzr.amplitude, gzr.amplitude, 0])/system.gamma # [Hz/m] -> [G/cm]
+gztimes = np.cumsum([0, gz.rise_time, gz.flat_time, gz.fall_time, gzr.rise_time, gzr.flat_time, gzr.fall_time]) + gz.delay # [s]
 
+gg = interp(tt, gztimes, gzamps) # [G]
 
-# mode = 2
+t1 = 1 # [s]
+t2 = 100e-3 # [s]
+df = 0
+dp = (np.arange(-Nkz/2, Nkz/2)*slice_thickness + z)*100 # [cm]
 
-# mx_0 = 0
-# my_0 = 0
-# mz_0 = 1
+mode = 2
 
-# mx, my, mz = bloch(b1, g, dt, t1, t2, df, dp, mode, mx_0, mx_0, mx_0)
-# plt.figure()
-# plt.subplot(211)
-# plt.plot(tt, b1)
-# plt.subplot(212)
-# plt.plot(dt/2 + tt[:-1], g)
+mx_0 = 0
+my_0 = 0
+mz_0 = 1
+
+mx, my, mz = bloch(b1, gg, dt, t1, t2, df, dp, mode, mx_0, my_0, mz_0)
+plt.figure()
+plt.subplot(211)
+plt.plot(tt*1e3, np.abs(b1))
+plt.subplot(212)
+plt.plot(tt*1e3, gg)
+plt.xlabel("t [ms]")
+mplcursors.cursor()
+
+plt.figure()
+plt.plot(dp*10, np.sqrt(mx[:,-1]**2 + my[:,-1]**2))
+plt.xlabel('z [mm]')
+plt.ylabel('|Mx, My|')
 
 # plt.figure()
 # plt.plot(tt, mx)
 # plt.plot(tt, my)
-# plt.plot(tt, mz)
+# plt.plot(tt, mz[dp==0,:])
 # plt.legend(('Mx', 'My', 'Mz'))
-# plt.show()
+plt.show()
 
 # -----------------------------------------
 # Define other gradients and ADC events
@@ -283,7 +290,6 @@ gx.id = seq.register_grad_event(gx)
 # ======
 # Loop over slices
 for fa_i in range(len(alpha)):
-    rf[fa_i].freq_offset = gz.amplitude*z
     seq.add_block(pp.make_label(type="SET", label="SET", value=fa_i))
 
     # Run several TRs for driving the magnetization to steady-state

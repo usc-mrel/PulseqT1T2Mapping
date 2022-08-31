@@ -15,6 +15,7 @@ Non-exhaustive package list:
 - Sigpy (required by pypulseq)
 - Matplotlib
 - Numpy
+- bloch-simulator-python (optional)
 - Mplcursors (optional)
 
 Dependencies are tested with conda. Environment exhaustive package list:
