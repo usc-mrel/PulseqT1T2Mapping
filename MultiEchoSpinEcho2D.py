@@ -9,7 +9,6 @@
 from math import pi
 
 import matplotlib.pyplot as plt
-import mplcursors
 import numpy as np
 import os
 from pypulseq.calc_duration import calc_duration
@@ -28,9 +27,6 @@ from pypulseq.opts import Opts
 from pypulseq.Sequence.sequence import Sequence
 from utils.grad_timing import rnd2GRT
 from scipy.io import savemat
-from numpy import interp
-
-from bloch.bloch import bloch
 
 import json
 
@@ -40,7 +36,6 @@ import json
 
 show_diag = True
 detailed_rep = False
-bloch_sim = True
 write_seq = False
 
 param_filename = "mese_debug"
@@ -120,42 +115,6 @@ rf90, gz90, gz_reph = make_sinc_pulse(flip_angle=flip90, system=system, duration
 
 gz90.channel = dir_ss
 gz_reph.channel = dir_ss
-
-if bloch_sim:
-    b1_orig = 100*rf90.signal/system.gamma
-    b1_t = rf90.t + rf90.delay
-    dt = system.rf_raster_time
-    t_end = calc_duration(gz90)
-
-    tt = np.arange(0, t_end, dt)
-    b1 = interp(tt, b1_t, b1_orig)
-    t1 = 1
-    t2 = 100e-3
-    df = 0
-    dp = 0
-    gzamps = np.array([0, gz90.amplitude, gz90.amplitude, 0])
-    gztimes = np.cumsum([0, gz90.rise_time, gz90.flat_time, gz90.fall_time])
-
-    g = convert(
-        points_to_waveform(
-            amplitudes=gzamps, times=gztimes, grad_raster_time=dt
-            )
-            , from_unit="Hz/m", to_unit="mT/m")/10
-
-    
-    mode = 2
-
-    mx_0 = 0
-    my_0 = 0
-    mz_0 = 1
-
-    mx, my, mz = bloch(b1, g, dt, t1, t2, df, dp, mode, mx_0, mx_0, mx_0)
-    plt.plot(mx)
-    plt.plot(my)
-    plt.plot(mz)
-    plt.legend(('Mx', 'My', 'Mz'))
-    plt.show()
-
                                  
 rf180, gz180, _ = make_sinc_pulse(flip_angle=flip180, system=system, 
                                   duration=2.5e-3, 
@@ -379,10 +338,6 @@ if detailed_rep:
 
 # ## **GENERATING `.SEQ` FILE**
 # Uncomment the code in the cell below to generate a `.seq` file and download locally.
-
-if bloch_sim:
-    pass
-
 
 if write_seq:
     seq.set_definition(key="FOV", value=fov)

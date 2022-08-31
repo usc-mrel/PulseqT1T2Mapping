@@ -10,7 +10,6 @@ import sys
 import numpy as np
 import pypulseq as pp
 import os
-import mplcursors
 import matplotlib.pyplot as plt
 from pypulseq.opts import Opts
 from pypulseq.make_trapezoid import make_trapezoid
@@ -23,8 +22,7 @@ from pypulseq.points_to_waveform import points_to_waveform
 from utils.grad_timing import rnd2GRT
 import json
 from utils import seqplot
-from bloch.bloch import bloch
-from numpy import interp
+from utils.rftools import slice_profile_small_tip, plot_slice_profile, slice_profile_bloch
 
 # =============
 # USER OPTIONS
@@ -32,6 +30,7 @@ from numpy import interp
 plot = True 
 write_seq = False
 detailed_rep = False
+slice_profile_sim = 'Bloch' # 'Small Tip', 'Bloch', None
 
 # param_filename = "t1map_both_vfagre"
 param_filename = "t1map_debug"
@@ -52,8 +51,6 @@ with open(os.path.join(param_dir,param_filename + ".json"), "r") as fj:
 # ======
 Nx, Ny, Nz = params['matrix_size']
 alpha = params['flip_angle']
-# alpha = np.logspace(np.log2(1), np.log2(30),num=7,base=2)  # Flip angle
-# alpha = [60, 120]  # Flip angle
 
 Ndummy = params['Ndummy']
 
@@ -130,93 +127,54 @@ for fa_i in range(1, len(alpha)):
     rf_.freq_offset = gz.amplitude*z
     rf.append(rf_)
 
-# ------------------------
-# DEBUG: RF slice profile
-# Small-tip approx.
-# ------------------------
+if slice_profile_sim is not None:
+    encoded_slab_thk = Nkz*slice_thickness
 
-rf_ft = np.abs(np.fft.fftshift(np.fft.fft(rf[0].signal, 4*rf[0].signal.shape[0])))
-freqz = np.fft.fftshift(np.fft.fftfreq(rf_ft.shape[0], system.rf_raster_time))
+    vialpos = (z - np.array([encoded_slab_thk/2-20*slice_thickness, encoded_slab_thk/2-40*slice_thickness])) # [m]
 
-zz = freqz/gz.amplitude + z
+    markers = {
+        'Prescribed Slab': z+np.array([-fov[2]/2 ,fov[2]/2]), 
+        'Encoded FoV': z+np.array([-encoded_slab_thk/2 ,encoded_slab_thk/2]), 
+        'Approx. Vial Positions': vialpos
+        }
 
-plt.figure()
-plt.plot(zz*1e3, rf_ft/rf_ft[int(rf_ft.shape[0]/2)])
+if slice_profile_sim == 'Small Tip':
 
-plt.vlines(
-    x=z*1e3+np.array([-fov[2]/2 ,fov[2]/2])*1e3, 
-    ymin=[0, 0], ymax=[1, 1], 
-    linestyles='dashed', colors=['red'])
+    # ------------------------
+    # DEBUG: RF slice profile
+    # Small-tip approx.
+    # ------------------------
 
-plt.vlines(
-    x=z*1e3+np.array([-Nkz*slice_thickness/2 ,Nkz*slice_thickness/2])*1e3, 
-    ymin=[0, 0], ymax=[1, 1], 
-    linestyles='dashed', colors=['orange'])
+    zz,slc_prfl_sta = slice_profile_small_tip(rf[0], gz, system.rf_raster_time, z)
 
-plt.xlim(z*1e3+np.array([-100, 100]))
-vialpos = z*1e3 - np.array([Nkz/2-20, Nkz/2-40])*slice_thickness*1e3
+    plot_slice_profile(zz, slc_prfl_sta, markers=markers, zlimarr=z*1e3+np.array([-100, 100]))
+    plt.show()
+    
+elif slice_profile_sim == 'Bloch':
+    # ------------------------
+    # DEBUG: RF slice profile
+    # Bloch sim
+    # ------------------------
 
-plt.vlines(
-    x=vialpos, 
-    ymin=[0, 0], ymax=[1, 1], 
-    linestyles='dashed', colors=['green'])
+    dp = (np.arange(-Nkz/2, Nkz/2)*slice_thickness + z)*100 # [cm]
 
-plt.xlabel('z [mm]')
-plt.ylabel('M [au]')
-plt.title('Slab Profile')
-plt.legend(['Slab Profile', 'Prescribed Slab', 'Encoded FoV', 'Approx. Vial Positions'])
+    mx, my, mz, tt, b1, gg = slice_profile_bloch(rf[-1], gz, gzr, dp, system.rf_raster_time)
 
-# plt.show()
+    plt.figure()
+    plt.subplot(211)
+    plt.plot(tt*1e3, np.abs(b1))
+    plt.subplot(212)
+    plt.plot(tt*1e3, gg)
+    plt.xlabel("t [ms]")
+    try:
+        import mplcursors
+        mplcursors.cursor()
+    except ImportError:
+        pass 
 
-# ------------------------
-# DEBUG: RF slice profile
-# Bloch sim
-# ------------------------
+    plot_slice_profile(dp/100, np.sqrt(mx[:,-1]**2 + my[:,-1]**2), ylabelstr='|Mx, My|', markers=markers, zlimarr=z*1e3+np.array([-100, 100]))
 
-b1_orig = rf[-1].signal*np.exp(1j*2*pi*rf[-1].freq_offset*rf[-1].t) # [Hz]
-b1_t    = rf[-1].t + rf[-1].delay # [s]
-dt      = system.rf_raster_time # [s]
-t_end   = calc_duration(rf[-1], gz) + calc_duration(gzr) # [s]
-
-tt = np.arange(0, t_end, dt) # [s]
-b1 = 10e3*interp(tt, b1_t, b1_orig)/system.gamma # [Hz] -> [G]
-
-gzamps  = 100*np.array([0, gz.amplitude, gz.amplitude, 0, gzr.amplitude, gzr.amplitude, 0])/system.gamma # [Hz/m] -> [G/cm]
-gztimes = np.cumsum([0, gz.rise_time, gz.flat_time, gz.fall_time, gzr.rise_time, gzr.flat_time, gzr.fall_time]) + gz.delay # [s]
-
-gg = interp(tt, gztimes, gzamps) # [G]
-
-t1 = 1 # [s]
-t2 = 100e-3 # [s]
-df = 0
-dp = (np.arange(-Nkz/2, Nkz/2)*slice_thickness + z)*100 # [cm]
-
-mode = 2
-
-mx_0 = 0
-my_0 = 0
-mz_0 = 1
-
-mx, my, mz = bloch(b1, gg, dt, t1, t2, df, dp, mode, mx_0, my_0, mz_0)
-plt.figure()
-plt.subplot(211)
-plt.plot(tt*1e3, np.abs(b1))
-plt.subplot(212)
-plt.plot(tt*1e3, gg)
-plt.xlabel("t [ms]")
-mplcursors.cursor()
-
-plt.figure()
-plt.plot(dp*10, np.sqrt(mx[:,-1]**2 + my[:,-1]**2))
-plt.xlabel('z [mm]')
-plt.ylabel('|Mx, My|')
-
-# plt.figure()
-# plt.plot(tt, mx)
-# plt.plot(tt, my)
-# plt.plot(tt, mz[dp==0,:])
-# plt.legend(('Mx', 'My', 'Mz'))
-plt.show()
+    plt.show()
 
 # -----------------------------------------
 # Define other gradients and ADC events
@@ -368,9 +326,9 @@ else:
     print("Timing check failed. Error listing follows:")
     [print(e) for e in error_report]
 
-# ======
+# ================
 # VISUALIZATION
-# ======
+# ===============
 if plot:
     seqplot.plot(seq, time_range=((Ndummy+1)*TR, (Ndummy+21)*TR), time_disp="ms", grad_disp="mT/m", plot_now=True)
     # (k_traj_adc, k_traj, t_excitation, t_refocusing, t_adc) = seq.calculate_kspace()
@@ -388,9 +346,9 @@ if detailed_rep:
     print(rep_str)
 
 
-# =========
+# ===============
 # WRITE .SEQ
-# =========
+# ===============
 if write_seq:
     # Prepare the sequence output for the scanner
     seq.set_definition(key="FOV", value=fov)
