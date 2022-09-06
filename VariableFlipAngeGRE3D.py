@@ -19,24 +19,26 @@ from pypulseq.make_delay import make_delay
 from pypulseq.calc_rf_center import calc_rf_center
 from pypulseq.convert import convert
 from pypulseq.points_to_waveform import points_to_waveform
+from pypulseq.make_adiabatic_pulse import make_adiabatic_pulse
 from utils.grad_timing import rnd2GRT
 import json
 from utils import seqplot
-from utils.rftools import slice_profile_small_tip, plot_slice_profile, slice_profile_bloch
+from utils.rftools import amfm2cplxsignal, slice_profile_small_tip, plot_slice_profile, slice_profile_bloch, sat_profile_bloch
 
 # =============
 # USER OPTIONS
 # =============
 plot = True 
-write_seq = False
+write_seq = True
 detailed_rep = False
-slice_profile_sim = 'Bloch' # 'Small Tip', 'Bloch', None
+slice_profile_sim = None # 'Small Tip', 'Bloch', None
+reset_block = True
 
 # param_filename = "t1map_both_vfagre"
-param_filename = "t1map_debug"
+# param_filename = "t1map_debug"
 # param_filename = "t1map_MnCl2_vfagre"
 # param_filename = "t1map_NiCl2_vfagre"
-# param_filename = "b1map_vfa"
+param_filename = "b1map_vfa"
 
 # Load parameter file
 params = {}
@@ -211,6 +213,66 @@ gx_spoil = pp.make_trapezoid(channel=dir_ro, area=2 * Nx * delta_k, system=syste
 
 # gz_spoil = pp.make_trapezoid(channel=dir_ss, area=4 / slice_thickness, system=system)
 
+# RESET Block
+if reset_block:
+    # rf_res = make_adiabatic_pulse(
+    #     pulse_type = "hypsec",
+    #     adiabaticity = 4,
+    #     bandwidth = 40000,
+    #     beta = 800,
+    #     duration = 8e-3,
+    #     n_fac = 40,
+    #     mu = 4.9,
+    #     system=system,
+    #     use="inversion"
+    # )
+
+    from sigpy.mri.rf.adiabatic import bir4
+    from pypulseq import eps
+    from pypulseq.make_arbitrary_rf import make_arbitrary_rf
+    from utils.rftools import amfm2cplxsignal
+
+    Trfsat = 8e-3 # [s]
+    dwell = system.rf_raster_time
+
+    n_raw = np.round(Trfsat/dwell + eps)
+    N = int(
+        np.floor(n_raw / 4) * 4
+    )  # Number of points must be divisible by 4 - requirement of sigpy.mri
+
+    am, fm = bir4(n=N,beta=1.6, kappa=1.37, theta=pi, dw0=200*pi/Trfsat)
+
+    signal = amfm2cplxsignal(am, fm, dwell)
+
+    if N != n_raw:
+        n_pad = n_raw - N
+        signal = [
+            np.zeros(1, n_pad - np.floor(n_pad / 2)),
+            signal,
+            np.zeros(1, np.floor(n_pad / 2)),
+        ]
+        N = n_raw
+
+    t = (np.arange(1, N + 1) - 0.5) * dwell
+
+    rf_res = make_arbitrary_rf(signal=signal, flip_angle=pi, system=system, return_gz=False, use="inversion")
+    gx_res = make_trapezoid(channel=dir_ro, area=4 * Nx * delta_k, system=system, delay=calc_duration(rf_res))
+    t_reset = calc_duration(rf_res, gx_res)
+
+    # ---------------------------------------------------------------
+    # Bloch simulation of the saturation performance
+    # ---------------------------------------------------------------
+    dp = np.arange(-10, 10, 0.1)
+    (mx, my, mz, tt, b1, gg) = sat_profile_bloch(rf_res, gx_res, dp, system.rf_raster_time)
+    plot_slice_profile(dp/100, mz, ylabelstr='|Mz|', zlimarr=[dp[0], dp[-1]])
+
+    pass
+
+
+else:
+    t_reset = 0
+
+
 # Calculate timing
 TEd = rnd2GRT(
             TE
@@ -223,7 +285,8 @@ TRd = rnd2GRT(
             - TE
             - calc_duration(gz)/2
             - calc_duration(gx)/2
-            - calc_duration(gx_spoil, gz_enc_largest, gx_pre)
+            - calc_duration(gx_spoil, gz_enc_largest, gx_pre),
+            - t_reset
 )
 
 assert np.all(TEd >= 0), "Required TE can not be achieved."
@@ -314,7 +377,12 @@ for fa_i in range(len(alpha)):
 
             # seq.add_block(delay_TR, gx_spoil, gy_pre, gz_spoil)
             seq.add_block(gx_spoil, gy_pre, gz_rew)
+            
+            if reset_block:
+                seq.add_block(rf_res, gx_res)
+
             seq.add_block(delay_TR)
+            
 
 
 

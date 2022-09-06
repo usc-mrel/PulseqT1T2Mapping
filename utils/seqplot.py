@@ -3,10 +3,10 @@ from matplotlib import pyplot as plt
 import numpy as np
 from pypulseq.supported_labels_rf_use import get_supported_labels
 from pypulseq.Sequence import block, parula
+from pypulseq import convert
 import itertools
 from pypulseq.calc_rf_center import calc_rf_center
 import math
-import mplcursors
 
 def plot(
         seq,
@@ -183,6 +183,7 @@ def plot(
 
                 grad_channels = ["gx", "gy", "gz"]
                 for x in range(len(grad_channels)):  # Gradients
+                    ming, maxg = 1e10, -1e10
                     if getattr(block, grad_channels[x], None) is not None:
                         grad = getattr(block, grad_channels[x])
                         if grad.type == "grad":
@@ -204,7 +205,7 @@ def plot(
                             )
                             waveform = g_factor * grad.amplitude * np.array([0, 0, 1, 1, 0])
                         sps[x+1].plot(t_factor * (t0 + time), waveform)
-                        sps[x+1].set_ylim((np.min(waveform), np.max(waveform)))
+                    
             t0 += seq.block_durations[block_counter]
 
         grad_plot_labels = ["x", "y", "z"]
@@ -220,6 +221,8 @@ def plot(
         # Setting display limits
         disp_range = t_factor * np.array([time_range[0], min(t0, time_range[1])])
         [x.set_xlim(disp_range) for x in sps]
+        Glim = convert.convert(seq.system.max_grad, 'Hz/m', seq.system.gamma, grad_disp)
+        [sps[x].set_ylim((-Glim, Glim)) for x in range(1,4)]
 
         # Grid on
         for sp in sps:
@@ -227,7 +230,12 @@ def plot(
 
         fig1.tight_layout()
 
-        mplcursors.cursor()
+        try:
+            import mplcursors
+            mplcursors.cursor()
+        except ImportError:
+            pass 
+
         if save:
             fig1.savefig("seq_plot1.jpg")
         

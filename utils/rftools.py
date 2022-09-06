@@ -76,4 +76,64 @@ def slice_profile_bloch(rf, gz, gzr, dp: ArrayLike, dt: float):
 
     return (mx, my, mz, tt, b1, gg)
 
-    
+
+def sat_profile_bloch(rf, gspoil, dp: ArrayLike, dt: float):
+    try:
+        from bloch.bloch import bloch
+    except ImportError:
+        print("Bloch package is not installed, returning empty arrays.")
+        return ([], [])
+
+    b1_orig = rf.signal*np.exp(1j*2*pi*rf.freq_offset*rf.t) # [Hz]
+    b1_t    = rf.t + rf.delay # [s]
+    t_end   = calc_duration(rf, gspoil) # [s]
+
+    tt = np.arange(0, t_end, dt) # [s]
+    b1 = 10e3*interp(tt, b1_t, b1_orig)/42.576e6 # [Hz] -> [G]
+
+    gzamps  = 100*np.array([0, gspoil.amplitude, gspoil.amplitude, 0])/42.576e6 # [Hz/m] -> [G/cm]
+    gztimes = np.cumsum([gspoil.delay, gspoil.rise_time, gspoil.flat_time, gspoil.fall_time]) # [s]
+
+    gg = interp(tt, gztimes, gzamps) # [G]
+
+    t1 = 1 # [s]
+    t2 = 100e-3 # [s]
+    df = 0
+
+    mode = 2
+
+    mx_0 = 0 #np.ones((1, dp.shape[0])).T
+    my_0 = 0 #np.zeros((1, dp.shape[0])).T
+    mz_0 = 1 #np.zeros((1, dp.shape[0])).T
+
+    mx, my, mz = bloch(b1, gg, dt, t1, t2, df, dp, mode, mx_0, my_0, mz_0)
+
+    return (mx, my, mz, tt, b1, gg)
+
+def amfm2cplxsignal(am: ArrayLike, fm: ArrayLike, dwell: float) -> ArrayLike:
+    # Adapted from pypulseq make_adiabatic_pulse.py
+    pm = np.cumsum(fm) * dwell
+
+    ifm = np.argmin(np.abs(fm))
+    dfm = np.abs(fm)[ifm]
+
+    if dfm == 0:
+        pm0 = pm[ifm]
+        am0 = am[ifm]
+        roc_fm0 = np.abs(fm[ifm + 1] - fm[ifm - 1]) / 2 / dwell
+    else:  # We need to bracket the zero-crossing
+        if fm[ifm] * fm[ifm + 1] < 0:
+            b = 1
+        else:
+            b = -1
+
+        pm0 = (pm[ifm] * fm[ifm + b] - pm[ifm + b] * fm[ifm]) / (fm[ifm + b] - fm[ifm])
+        am0 = (am[ifm] * fm[ifm + b] - am[ifm + b] * fm[ifm]) / (fm[ifm + b] - fm[ifm])
+        roc_fm0 = np.abs(fm[ifm] - fm[ifm + b]) / dwell
+
+    pm -= pm0
+    a = (roc_fm0 * 4) ** 0.5 / 2 / np.pi / am0
+
+    signal = a * am * np.exp(1j * pm)
+
+    return signal
