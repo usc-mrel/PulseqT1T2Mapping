@@ -19,7 +19,6 @@ from pypulseq.make_delay import make_delay
 from pypulseq.calc_rf_center import calc_rf_center
 from pypulseq.convert import convert
 from pypulseq.points_to_waveform import points_to_waveform
-from pypulseq.make_adiabatic_pulse import make_adiabatic_pulse
 from utils.grad_timing import rnd2GRT
 import json
 from utils import seqplot
@@ -28,7 +27,7 @@ from utils.rftools import amfm2cplxsignal, slice_profile_small_tip, plot_slice_p
 # =============
 # USER OPTIONS
 # =============
-plot = True 
+plot = False 
 write_seq = True
 detailed_rep = False
 slice_profile_sim = None # 'Small Tip', 'Bloch', None
@@ -206,7 +205,6 @@ else:
 gz_enc_largest = pp.make_trapezoid(channel=dir_ss, area=np.max(np.abs(areaZ)), system=system)
 Tz_enc = pp.calc_duration(gz_enc_largest)
 
-
 # Gradient spoiling
 gx_spoil = pp.make_trapezoid(channel=dir_ro, area=2 * Nx * delta_k, system=system)
 # gx_spoil = pp.make_trapezoid(channel=dir_ro, area=-gx.area/2, system=system)
@@ -215,59 +213,29 @@ gx_spoil = pp.make_trapezoid(channel=dir_ro, area=2 * Nx * delta_k, system=syste
 
 # RESET Block
 if reset_block:
-    # rf_res = make_adiabatic_pulse(
-    #     pulse_type = "hypsec",
-    #     adiabaticity = 4,
-    #     bandwidth = 40000,
-    #     beta = 800,
-    #     duration = 8e-3,
-    #     n_fac = 40,
-    #     mu = 4.9,
-    #     system=system,
-    #     use="inversion"
-    # )
 
-    from sigpy.mri.rf.adiabatic import bir4
-    from pypulseq import eps
     from pypulseq.make_arbitrary_rf import make_arbitrary_rf
-    from utils.rftools import amfm2cplxsignal
+    from utils.rftools import design_bir4
+    from math import atan
 
-    Trfsat = 8e-3 # [s]
-    dwell = system.rf_raster_time
+    # --------------------------------------------------------------------------
+    # Define parameters for a BIR-4 preparation
+    # --------------------------------------------------------------------------
+    T_seg     = 2e-3          # duration of one pulse segment [sec]
+    b1_max    = 10            # maximum RF amplitude [uT]
+    dw_max    = 39.8e3        # maximum frequency sweep [Hz]
+    zeta      = 15.2          # constant in the amplitude function [rad]
+    kappa     = atan(63.6)    # constant in the frequency/phase function [rad]
+    beta      = 90            # flip angle [degree]
 
-    n_raw = np.round(Trfsat/dwell + eps)
-    N = int(
-        np.floor(n_raw / 4) * 4
-    )  # Number of points must be divisible by 4 - requirement of sigpy.mri
+    signal = design_bir4(T_seg, b1_max, dw_max, zeta, kappa, beta, system.rf_raster_time)
 
-    am, fm = bir4(n=N,beta=1.6, kappa=1.37, theta=pi, dw0=200*pi/Trfsat)
+    # Create an RF event
+    rf_res = make_arbitrary_rf(signal=signal, flip_angle=2*pi, system=system, return_gz=False, use="saturation")
+    rf_res.signal = signal
 
-    signal = amfm2cplxsignal(am, fm, dwell)
-
-    if N != n_raw:
-        n_pad = n_raw - N
-        signal = [
-            np.zeros(1, n_pad - np.floor(n_pad / 2)),
-            signal,
-            np.zeros(1, np.floor(n_pad / 2)),
-        ]
-        N = n_raw
-
-    t = (np.arange(1, N + 1) - 0.5) * dwell
-
-    rf_res = make_arbitrary_rf(signal=signal, flip_angle=pi, system=system, return_gz=False, use="inversion")
     gx_res = make_trapezoid(channel=dir_ro, area=4 * Nx * delta_k, system=system, delay=calc_duration(rf_res))
     t_reset = calc_duration(rf_res, gx_res)
-
-    # ---------------------------------------------------------------
-    # Bloch simulation of the saturation performance
-    # ---------------------------------------------------------------
-    dp = np.arange(-10, 10, 0.1)
-    (mx, my, mz, tt, b1, gg) = sat_profile_bloch(rf_res, gx_res, dp, system.rf_raster_time)
-    plot_slice_profile(dp/100, mz, ylabelstr='|Mz|', zlimarr=[dp[0], dp[-1]])
-
-    pass
-
 
 else:
     t_reset = 0
@@ -285,7 +253,7 @@ TRd = rnd2GRT(
             - TE
             - calc_duration(gz)/2
             - calc_duration(gx)/2
-            - calc_duration(gx_spoil, gz_enc_largest, gx_pre),
+            - calc_duration(gx_spoil, gz_enc_largest, gx_pre)
             - t_reset
 )
 
@@ -379,6 +347,7 @@ for fa_i in range(len(alpha)):
             seq.add_block(gx_spoil, gy_pre, gz_rew)
             
             if reset_block:
+                rf_res.phase_offset = 0.5*phi0*(n*n + n + 2)*np.pi/180
                 seq.add_block(rf_res, gx_res)
 
             seq.add_block(delay_TR)
@@ -407,6 +376,10 @@ if plot:
 
     # mplcursors.cursor()
     # plt.show()
+
+# from utils.export_waveforms import export_waveforms
+
+# waveform_tr,_,_,_,_ = export_waveforms(seq,time_range=(50*TR, 51*TR), append_RF=True)
 
 if detailed_rep:
     print("\n===== Detailed Test Report =====\n")

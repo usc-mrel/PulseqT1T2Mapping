@@ -1,22 +1,27 @@
 # Usage
 
-Protocol parameters should be given in .json format. They can be found under "protocols/" directory. Desired protocols should be input in the sequence design scripts. Currently there are 2 scripts:
+Protocol parameters should be given in .json format. They can be found under "protocols/" directory. Desired protocols should be input in the sequence design scripts. Currently there are 3 scripts:
 
 - MultiEchoSpinEcho2D.py 
 Implements a 2D MESE sequence to be used for T2 mapping.
 - VariableFlipAngleGRE3D.py
 Implements a multi flip angle 3D Gre sequence to be used for B1 and T1 mapping.
+- DesignBIR4.py
+Designs and simulates a BIR 4 pulse with given parameters, to be used in VFA-GRE B1 mapping.
 
 ## Required Python Packages:
 
 Non-exhaustive package list:
 
-- Pypulseq (dev branch)
+- Pypulseq (https://github.com/bilal-tasdelen/pypulseq/tree/v140)
+    - The original pypulseq repo has several bugs, especially for Pulseq 1.4.0, that makes these sequences non-functional. This repo includes bug fixes and small improvements over the original. Some of these commits are already a PR on the original repo, but adaptation of them takes time. In summary, sequences in this repo are only compatible with this fork.
 - Sigpy (required by pypulseq)
 - Matplotlib
 - Numpy
 - bloch-simulator-python (optional)
+    - Required for slice profile simulation and BIR-4 pulse simulation.
 - Mplcursors (optional)
+    - Helps with debugging the sequence diagrams.
 
 Dependencies are tested with conda. Environment exhaustive package list:
 
