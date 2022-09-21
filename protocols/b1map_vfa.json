@@ -1,15 +1,15 @@
 { 
     "output_folder": "T1T2Mapping_seqfiles/",
     "file_name": "DoubleAngleB1Map",
-    "TE": [4e-3], 
-    "TR": 0.05,
+    "TE": [6e-3], 
+    "TR": 5,
     "fov_inplane": [256e-3, 256e-3],
-    "slice_thickness": 4e-3,
-    "kz_os_steps": 10,
-    "matrix_size": [64, 64, 20],
+    "slice_thickness": 8e-3,
+    "kz_os_steps": 2,
+    "matrix_size": [32, 32, 4],
     "slice_orientation": "TRA",
     "flip_angle": [30, 60],
     "slice_pos": [0e-3],
-    "readout_duration": 3.2e-3,
+    "readout_duration": 6.4e-3,
     "Ndummy": 0
 }

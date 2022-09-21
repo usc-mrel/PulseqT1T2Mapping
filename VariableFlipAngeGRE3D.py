@@ -5,33 +5,36 @@
 
 ## TODO:
 
-from math import pi
-import sys
+import json
+import os
+from math import ceil, pi
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pypulseq as pp
-import os
-import matplotlib.pyplot as plt
-from pypulseq.opts import Opts
-from pypulseq.make_trapezoid import make_trapezoid
 from pypulseq.calc_duration import calc_duration
-from pypulseq.make_label import make_label
-from pypulseq.make_delay import make_delay
 from pypulseq.calc_rf_center import calc_rf_center
-from pypulseq.convert import convert
-from pypulseq.points_to_waveform import points_to_waveform
-from utils.grad_timing import rnd2GRT
-import json
+from pypulseq.make_arbitrary_rf import make_arbitrary_rf
+from pypulseq.make_delay import make_delay
+from pypulseq.make_label import make_label
+from pypulseq.make_trapezoid import make_trapezoid
+from pypulseq.opts import Opts
+from sigpy.mri.rf import slr
+
 from utils import seqplot
-from utils.rftools import amfm2cplxsignal, slice_profile_small_tip, plot_slice_profile, slice_profile_bloch, sat_profile_bloch
+from utils.grad_timing import rnd2GRT
+from utils.rftools import (plot_slice_profile, slice_profile_bloch,
+                           slice_profile_small_tip)
 
 # =============
 # USER OPTIONS
 # =============
-plot = False 
+show_diag = True
 write_seq = True
 detailed_rep = False
 slice_profile_sim = None # 'Small Tip', 'Bloch', None
 reset_block = True
+exc_pulse_type = 'slr' # 'slr', 'sinc'
 
 # param_filename = "t1map_both_vfagre"
 # param_filename = "t1map_debug"
@@ -91,41 +94,88 @@ system = Opts(
     adc_dead_time    =  10e-6, # [s] ( 10 us)
 )
 
+seq = pp.Sequence(system)  # Create a new sequence object
+
 # ==============
 # CREATE EVENTS
 # ==============
 # Create alpha-degree slice selection pulse and gradient
-tbwp = 6 # Time-BW product of sinc
+tbwp = 8 # Time-BW product of sinc
 Trf = 2e-3 # [s] RF duration
+dt = system.rf_raster_time
 
-# Calculate and store rf pulses
+
+# Create the excitation RF events
 rf = []
-rf_, gz, gzr = pp.make_sinc_pulse(
-    flip_angle=alpha[0] * np.pi / 180,
-    duration=Trf,
-    slice_thickness=fov[2],
-    apodization=0.5,
-    time_bw_product=tbwp,
-    system=system,
-    return_gz=True,
-    use="excitation"
-)
-rf_.freq_offset = gz.amplitude*z
 
-rf.append(rf_)
+if exc_pulse_type == 'slr':
+    raster_ratio = int(system.grad_raster_time/system.rf_raster_time)
+    n = ceil((Trf/dt)/(4*raster_ratio))*4*raster_ratio
+    Trf = n*dt
+    bw = tbwp/Trf
+    signal = slr.dzrf(n=n, tb=tbwp, ptype='st', ftype='ls', d1=0.01, d2=0.01, cancel_alpha_phs=False)
 
-for fa_i in range(1, len(alpha)):
-    rf_ = pp.make_sinc_pulse(
-        flip_angle=alpha[fa_i] * np.pi / 180,
+    rf_, gz = make_arbitrary_rf(
+        signal=signal, slice_thickness=fov[2],
+        bandwidth=bw, flip_angle=alpha[0] * np.pi / 180, 
+        system=system, return_gz=True, use="excitation"
+        )
+
+    gzr = make_trapezoid(channel=dir_ss, area=-gz.area/2, system=system)
+
+elif exc_pulse_type == 'sinc':
+    # Calculate and store rf pulses
+    rf_, gz, gzr = pp.make_sinc_pulse(
+        flip_angle=alpha[0] * np.pi / 180,
         duration=Trf,
         slice_thickness=fov[2],
         apodization=0.5,
         time_bw_product=tbwp,
         system=system,
-        return_gz=False,
+        return_gz=True,
         use="excitation"
     )
+
+else:
+    print('Wrong RF pulse.')
+    exit()
+
+rf_.freq_offset = gz.amplitude*z
+# rf_.id, _ = seq.register_rf_event(rf_)
+
+rf.append(rf_)
+
+
+for fa_i in range(1, len(alpha)):
+    
+
+    if exc_pulse_type == 'slr':
+        rf_ = make_arbitrary_rf(
+            signal=signal, 
+            slice_thickness=fov[2],
+            bandwidth=bw, 
+            flip_angle=alpha[fa_i] * np.pi / 180, 
+            system=system, 
+            return_gz=False, 
+            use="excitation"
+        )
+
+    elif exc_pulse_type == 'sinc':
+        rf_ = pp.make_sinc_pulse(
+            flip_angle=alpha[fa_i] * np.pi / 180,
+            duration=Trf,
+            slice_thickness=fov[2],
+            apodization=0.5,
+            time_bw_product=tbwp,
+            system=system,
+            return_gz=False,
+            use="excitation"
+        )
+
+
     rf_.freq_offset = gz.amplitude*z
+    # rf_.id, _ = seq.register_rf_event(rf_)
+
     rf.append(rf_)
 
 if slice_profile_sim is not None:
@@ -164,17 +214,19 @@ elif slice_profile_sim == 'Bloch':
     plt.figure()
     plt.subplot(211)
     plt.plot(tt*1e3, np.abs(b1))
+    plt.ylabel("|RF| [uT]")
     plt.subplot(212)
-    plt.plot(tt*1e3, gg)
+    plt.plot(tt*1e3, gg*10)
+    plt.ylabel("G [mT/m]")
     plt.xlabel("t [ms]")
+
+
+    plot_slice_profile(dp/100, np.sqrt(mx[:,-1]**2 + my[:,-1]**2), ylabelstr='|Mx, My|', markers=markers, zlimarr=z*1e3+np.array([-100, 100]))
     try:
         import mplcursors
         mplcursors.cursor()
     except ImportError:
         pass 
-
-    plot_slice_profile(dp/100, np.sqrt(mx[:,-1]**2 + my[:,-1]**2), ylabelstr='|Mx, My|', markers=markers, zlimarr=z*1e3+np.array([-100, 100]))
-
     plt.show()
 
 # -----------------------------------------
@@ -206,17 +258,21 @@ gz_enc_largest = pp.make_trapezoid(channel=dir_ss, area=np.max(np.abs(areaZ)), s
 Tz_enc = pp.calc_duration(gz_enc_largest)
 
 # Gradient spoiling
-gx_spoil = pp.make_trapezoid(channel=dir_ro, area=2 * Nx * delta_k, system=system)
+gx_spoil = pp.make_trapezoid(channel=dir_ro, area=4 * Nx * delta_k, system=system)
+gy_spoil = pp.make_trapezoid(channel=dir_pe, area=4 * Nx * delta_k, system=system)
+
 # gx_spoil = pp.make_trapezoid(channel=dir_ro, area=-gx.area/2, system=system)
 
-# gz_spoil = pp.make_trapezoid(channel=dir_ss, area=4 / slice_thickness, system=system)
+gz_spoil = pp.make_trapezoid(channel=dir_ss, area=16 / slice_thickness, system=system)
 
 # RESET Block
 if reset_block:
 
-    from pypulseq.make_arbitrary_rf import make_arbitrary_rf
-    from utils.rftools import design_bir4
     from math import atan
+
+    from pypulseq.make_arbitrary_rf import make_arbitrary_rf
+
+    from utils.rftools import design_bir4
 
     # --------------------------------------------------------------------------
     # Define parameters for a BIR-4 preparation
@@ -235,6 +291,13 @@ if reset_block:
     rf_res.signal = signal
 
     gx_res = make_trapezoid(channel=dir_ro, area=4 * Nx * delta_k, system=system, delay=calc_duration(rf_res))
+    gy_res = make_trapezoid(channel=dir_pe, area=4 * Nx * delta_k, system=system, delay=calc_duration(rf_res))
+    gz_res = make_trapezoid(channel=dir_ss, area=4 * Nx * delta_k, system=system, delay=calc_duration(rf_res))
+    
+    gx_res.id = seq.register_grad_event(gx_res)
+    gy_res.id = seq.register_grad_event(gy_res)
+    gz_res.id = seq.register_grad_event(gz_res)
+
     t_reset = calc_duration(rf_res, gx_res)
 
 else:
@@ -253,7 +316,7 @@ TRd = rnd2GRT(
             - TE
             - calc_duration(gz)/2
             - calc_duration(gx)/2
-            - calc_duration(gx_spoil, gz_enc_largest, gx_pre)
+            - calc_duration(gx_spoil, gy_spoil, gz_spoil)
             - t_reset
 )
 
@@ -266,7 +329,6 @@ delay_TR = make_delay(TRd)
 rf_phase = 0
 rf_inc = 0
 
-seq = pp.Sequence(system)  # Create a new sequence object
 
 seq.add_block(pp.make_label(label="REV", type="SET", value=1))
 
@@ -304,7 +366,7 @@ for fa_i in range(len(alpha)):
 
 
         # seq.add_block(delay_TR, gx_spoil, gy_pre, gz_spoil)
-        seq.add_block(gx_spoil, gy_pre, gz_rew)
+        seq.add_block(gx_spoil, gy_spoil, gz_spoil)
         seq.add_block(delay_TR)
 
 
@@ -329,10 +391,10 @@ for fa_i in range(len(alpha)):
 
             seq.add_block(rf[fa_i], gz)
             
-            gy_pre = pp.make_trapezoid(
+            gy_pre = make_trapezoid(
                 channel=dir_pe,
                 area=phase_areas[ky_i],
-                duration=pp.calc_duration(gx_pre),
+                duration=calc_duration(gx_pre),
                 system=system,
             )
             # seq.add_block(gx_pre, gy_pre, gz_reph)
@@ -344,11 +406,11 @@ for fa_i in range(len(alpha)):
             gy_pre.amplitude = -gy_pre.amplitude
 
             # seq.add_block(delay_TR, gx_spoil, gy_pre, gz_spoil)
-            seq.add_block(gx_spoil, gy_pre, gz_rew)
+            seq.add_block(gx_spoil, gy_spoil, gz_spoil)
             
             if reset_block:
                 rf_res.phase_offset = 0.5*phi0*(n*n + n + 2)*np.pi/180
-                seq.add_block(rf_res, gx_res)
+                seq.add_block(rf_res, gx_res, gy_res, gz_res)
 
             seq.add_block(delay_TR)
             
@@ -366,7 +428,7 @@ else:
 # ================
 # VISUALIZATION
 # ===============
-if plot:
+if show_diag:
     seqplot.plot(seq, time_range=((Ndummy+1)*TR, (Ndummy+21)*TR), time_disp="ms", grad_disp="mT/m", plot_now=True)
     # (k_traj_adc, k_traj, t_excitation, t_refocusing, t_adc) = seq.calculate_kspace()
     # pass
