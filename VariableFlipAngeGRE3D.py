@@ -5,7 +5,6 @@
 
 ## TODO:
 
-import json
 import os
 from math import ceil, pi
 
@@ -23,38 +22,34 @@ from sigpy.mri.rf import slr
 
 from utils import seqplot
 from utils.grad_timing import rnd2GRT
-from utils.rftools import (plot_slice_profile, slice_profile_bloch,
-                           slice_profile_small_tip)
+from utils.load_params import load_params
 
 # =============
 # USER OPTIONS
 # =============
-show_diag = True
-write_seq = True
-detailed_rep = False
-slice_profile_sim = None # 'Small Tip', 'Bloch', None
-reset_block = True
-exc_pulse_type = 'slr' # 'slr', 'sinc'
+
+# Load user options
+user_opts = load_params("user_opts", "./")
+
+show_diag    = user_opts['show_diag']
+write_seq    = user_opts['write_seq']
+detailed_rep = user_opts['detailed_rep']
+param_filename = user_opts["param_filename"]
 
 # param_filename = "t1map_both_vfagre"
 # param_filename = "t1map_debug"
 # param_filename = "t1map_MnCl2_vfagre"
 # param_filename = "t1map_NiCl2_vfagre"
-param_filename = "b1map_vfa"
 
 # Load parameter file
-params = {}
-
-param_dir = "protocols"
-with open(os.path.join(param_dir,param_filename + ".json"), "r") as fj:
-    jsonstr = fj.read()
-    params = json.loads(jsonstr)
+params = load_params(param_filename)
 
 # ======
 # SETUP
 # ======
 Nx, Ny, Nz = params['matrix_size']
 alpha = params['flip_angle']
+exc_pulse_type = params['exc_pulse_type'] # 'slr', 'sinc'
 
 Ndummy = params['Ndummy']
 
@@ -71,6 +66,8 @@ ro_duration = params['readout_duration']  # ADC duration
 
 seq_filename = params['file_name']
 seq_folder   = params['output_folder']
+
+reset_block = params['reset_block']
 
 phi0 = 117  # RF spoiling increment
 
@@ -177,57 +174,6 @@ for fa_i in range(1, len(alpha)):
     # rf_.id, _ = seq.register_rf_event(rf_)
 
     rf.append(rf_)
-
-if slice_profile_sim is not None:
-    encoded_slab_thk = Nkz*slice_thickness
-
-    vialpos = (z - np.array([encoded_slab_thk/2-20*slice_thickness, encoded_slab_thk/2-40*slice_thickness])) # [m]
-
-    markers = {
-        'Prescribed Slab': z+np.array([-fov[2]/2 ,fov[2]/2]), 
-        'Encoded FoV': z+np.array([-encoded_slab_thk/2 ,encoded_slab_thk/2]), 
-        'Approx. Vial Positions': vialpos
-        }
-
-if slice_profile_sim == 'Small Tip':
-
-    # ------------------------
-    # DEBUG: RF slice profile
-    # Small-tip approx.
-    # ------------------------
-
-    zz,slc_prfl_sta = slice_profile_small_tip(rf[0], gz, system.rf_raster_time, z)
-
-    plot_slice_profile(zz, slc_prfl_sta, markers=markers, zlimarr=z*1e3+np.array([-100, 100]))
-    plt.show()
-    
-elif slice_profile_sim == 'Bloch':
-    # ------------------------
-    # DEBUG: RF slice profile
-    # Bloch sim
-    # ------------------------
-
-    dp = (np.arange(-Nkz/2, Nkz/2)*slice_thickness + z)*100 # [cm]
-
-    mx, my, mz, tt, b1, gg = slice_profile_bloch(rf[-1], gz, gzr, dp, system.rf_raster_time)
-
-    plt.figure()
-    plt.subplot(211)
-    plt.plot(tt*1e3, np.abs(b1))
-    plt.ylabel("|RF| [uT]")
-    plt.subplot(212)
-    plt.plot(tt*1e3, gg*10)
-    plt.ylabel("G [mT/m]")
-    plt.xlabel("t [ms]")
-
-
-    plot_slice_profile(dp/100, np.sqrt(mx[:,-1]**2 + my[:,-1]**2), ylabelstr='|Mx, My|', markers=markers, zlimarr=z*1e3+np.array([-100, 100]))
-    try:
-        import mplcursors
-        mplcursors.cursor()
-    except ImportError:
-        pass 
-    plt.show()
 
 # -----------------------------------------
 # Define other gradients and ADC events

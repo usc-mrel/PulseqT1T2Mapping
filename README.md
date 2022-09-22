@@ -1,6 +1,18 @@
 # Usage
 
-Protocol parameters should be given in .json format. They can be found under "protocols/" directory. Desired protocols should be input in the sequence design scripts. Currently there are 3 scripts:
+User inputs for the control of the scripts are given by user_opts.json. Currently user opts are consisting of:
+
+"show_diag": (bool) Whether or not to show sequence diagram.
+"write_seq": (bool) Whether or not to write the sequence to a file.
+"detailed_rep": (bool) Whether or not to generate a detailed report of the sequence. (Beware, its slow.)
+"param_filename": (string) Name of the protocol file to be used. File should be present under "protocols/".
+
+Protocol parameters should be given in .json format. They can be found under "protocols/" directory.
+Protocol parameters can be following (subject to increase):
+
+TBA
+
+Currently there are following scripts:
 
 - MultiEchoSpinEcho2D.py 
 Implements a 2D MESE sequence to be used for T2 mapping.
@@ -8,6 +20,10 @@ Implements a 2D MESE sequence to be used for T2 mapping.
 Implements a multi flip angle 3D Gre sequence to be used for B1 and T1 mapping.
 - DesignBIR4.py
 Designs and simulates a BIR 4 pulse with given parameters, to be used in VFA-GRE B1 mapping.
+- DesignSLR.py
+Designs and simulates an SLR pulse with given parameters, to be used in VFA-GRE.
+- SliceProfile.py
+Simulates slice profiles of sinc and SLR pulses.
 
 ## Required Python Packages:
 
