@@ -1,3 +1,33 @@
+# Installation
+
+Clone this repo:
+
+    git clone https://github.com/usc-mrel/PulseqT1T2Mapping.git
+
+
+Navigate to the directory where its cloned.
+
+
+Create the conda environment with the given "environment.yml" file.
+
+    conda env create -f environment.yml 
+
+Activate the environment:
+
+    conda activate pulseqmapping
+
+Clone the pypulseq repository and switch to v140 branch:
+
+    git clone https://github.com/bilal-tasdelen/pypulseq.git
+    cd pypulseq
+    git checkout v140
+
+Navigate to the directory **before** the cloned directory. Install pypulseq and its dependencies via pip:
+
+    pip install pypulseq/
+
+Optionally install mplcursors from pip.
+
 # Usage
 
 User inputs for the control of the scripts are given by user_opts.json. Currently user opts are consisting of:
