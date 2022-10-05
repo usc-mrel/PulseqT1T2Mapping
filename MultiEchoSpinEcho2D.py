@@ -30,15 +30,22 @@ from scipy.io import savemat
 
 import json
 
+from utils.load_params import load_params
+
 # ## **USER INPUTS**
 # 
 # These parameters are typically on the user interface of the scanner computer console 
 
-show_diag = True
-detailed_rep = False
-write_seq = False
+# Load user options
+user_opts = load_params("user_opts", "./")
 
-param_filename = "mese_debug"
+show_diag    = user_opts['show_diag']
+write_seq    = user_opts['write_seq']
+detailed_rep = user_opts['detailed_rep']
+param_filename = user_opts["param_filename"]
+
+
+# param_filename = "mese_debug"
 # param_filename = "t2map_MnCl2_mese"
 # param_filename = "t2map_NiCl2_mese"
 
