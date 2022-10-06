@@ -29,7 +29,7 @@ from utils.load_params import load_params
 # =============
 
 # Load user options
-user_opts = load_params("user_opts", "./")
+user_opts = load_params("user_opts_vfagre", "./")
 
 show_diag    = user_opts['show_diag']
 write_seq    = user_opts['write_seq']

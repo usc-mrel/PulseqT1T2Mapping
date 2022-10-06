@@ -32,13 +32,48 @@ Optionally install mplcursors from pip.
 
 User inputs for the control of the scripts are given by user_opts.json. Currently user opts are consisting of:
 
-"show_diag": (bool) Whether or not to show sequence diagram.
-"write_seq": (bool) Whether or not to write the sequence to a file.
-"detailed_rep": (bool) Whether or not to generate a detailed report of the sequence. (Beware, its slow.)
-"param_filename": (string) Name of the protocol file to be used. File should be present under "protocols/".
+**show_diag**: (bool) Whether or not to show sequence diagram.
+
+**write_seq**: (bool) Whether or not to write the sequence to a file.
+
+**detailed_rep**: (bool) Whether or not to generate a detailed report of the sequence. (Beware, its slow.)
+
+**param_filename**: (string) Name of the protocol file to be used. File should be present under "protocols/".
 
 Protocol parameters should be given in .json format. They can be found under "protocols/" directory.
 Protocol parameters can be following (subject to increase):
+
+Common:
+
+**output_folder**: (string) Directory name that sequence will be put into.
+
+**file_name**: (string)
+
+**TE**: (list of doubles) [secs]
+
+**TR**: (double) [secs]
+
+**fov_inplane**: (2 elements list of doubles) [m]
+
+**slice_thickness**: 
+
+**kz_os_steps**: 
+
+**matrix_size**: 
+
+**slice_orientation**: 
+
+**flip_angle**:
+
+**exc_pulse_type**:
+
+**slice_pos**: 
+
+**readout_duration**:
+
+**Ndummy**: 
+
+**reset_block**: 
 
 TBA
 

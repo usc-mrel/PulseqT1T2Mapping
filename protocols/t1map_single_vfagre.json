@@ -1,17 +1,18 @@
 { 
     "output_folder": "T1T2Mapping_seqfiles/",
-    "file_name": "DoubleAngleB1Map",
+    "file_name": "VFAT1Map",
     "TE": [6e-3], 
-    "TR": 0.5,
+    "TR": 25e-3,
     "fov_inplane": [256e-3, 256e-3],
     "slice_thickness": 2e-3,
     "kz_os_steps": 2,
     "matrix_size": [128, 128, 8],
     "slice_orientation": "TRA",
-    "flip_angle": [20, 40],
-    "exc_pulse_type": "slr",
+    "flip_angle": [1.0, 1.763, 3.107, 5.477, 9.655, 17.019, 30.0],
     "slice_pos": [0e-3],
+    "exc_pulse_type": "slr",
     "readout_duration": 6.4e-3,
-    "Ndummy": 0,
-    "reset_block": true
+    "Ndummy": 50,
+    "reset_block": false
+
 }
