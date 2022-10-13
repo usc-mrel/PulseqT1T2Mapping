@@ -1,6 +1,6 @@
 { 
     "output_folder": "T1T2Mapping_seqfiles/",
-    "file_name": "T2Mapping",
+    "file_name": "MCSET2Mapping",
     "TE": [6e-3], 
     "TR": 5,
     "fov_inplane": [256e-3, 256e-3],
