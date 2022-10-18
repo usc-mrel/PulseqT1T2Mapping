@@ -28,6 +28,8 @@ Navigate to the directory **before** the cloned directory. Install pypulseq and 
 
 Optionally install mplcursors from pip.
 
+Optionall install python-bloch-simulator from https://github.com/utcsilab/bloch-simulator-python.
+
 # Usage
 
 User inputs for the control of the scripts are given by user_opts.json. Currently user opts are consisting of:

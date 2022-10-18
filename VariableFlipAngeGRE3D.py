@@ -36,11 +36,6 @@ write_seq    = user_opts['write_seq']
 detailed_rep = user_opts['detailed_rep']
 param_filename = user_opts["param_filename"]
 
-# param_filename = "t1map_both_vfagre"
-# param_filename = "t1map_debug"
-# param_filename = "t1map_MnCl2_vfagre"
-# param_filename = "t1map_NiCl2_vfagre"
-
 # Load parameter file
 params = load_params(param_filename)
 
@@ -192,10 +187,33 @@ gx_pre = pp.make_trapezoid(
     channel=dir_ro, area=-gx.area / 2, system=system
 )
 
+# ky Phase Encode
 phase_areas = -(np.arange(Ny) - Ny / 2) * delta_k
 
+gy_pre = []
+gy_rew = []
+
+for ky_i in range(Ny):
+    gy_pre.append(make_trapezoid(
+        channel=dir_pe,
+        area=phase_areas[ky_i],
+        duration=calc_duration(gx_pre),
+        system=system,
+    ))
+
+    gy_rew.append(make_trapezoid(
+        channel=dir_pe,
+        area=-phase_areas[ky_i],
+        duration=calc_duration(gx_pre),
+        system=system,
+    ))
+
+    gy_pre[ky_i].id = seq.register_grad_event(gy_pre[ky_i])
+    gy_rew[ky_i].id = seq.register_grad_event(gy_rew[ky_i])
+
+
 # 3D Phase encode
-if Nz == 1:
+if Nz == 1: # Basically 2D
     areaZ = [-gz.area/2]
 else:
     areaZ = -(np.arange(0,Nkz) - Nkz/2)/(Nkz*slice_thickness) - gz.area/2 # Combine kz encoding and rephasing
@@ -204,12 +222,7 @@ gz_enc_largest = pp.make_trapezoid(channel=dir_ss, area=np.max(np.abs(areaZ)), s
 Tz_enc = pp.calc_duration(gz_enc_largest)
 
 # Gradient spoiling
-gx_spoil = pp.make_trapezoid(channel=dir_ro, area=4 * Nx * delta_k, system=system)
-gy_spoil = pp.make_trapezoid(channel=dir_pe, area=4 * Nx * delta_k, system=system)
-
-# gx_spoil = pp.make_trapezoid(channel=dir_ro, area=-gx.area/2, system=system)
-
-gz_spoil = pp.make_trapezoid(channel=dir_ss, area=16 / slice_thickness, system=system)
+gx_spoil = pp.make_trapezoid(channel=dir_ro, area=gx.area, system=system)
 
 # RESET Block
 if reset_block:
@@ -223,9 +236,9 @@ if reset_block:
     # --------------------------------------------------------------------------
     # Define parameters for a BIR-4 preparation
     # --------------------------------------------------------------------------
-    T_seg     = 2e-3          # duration of one pulse segment [sec]
+    T_seg     = 3e-3          # duration of one pulse segment [sec]
     b1_max    = 10            # maximum RF amplitude [uT]
-    dw_max    = 39.8e3        # maximum frequency sweep [Hz]
+    dw_max    = 20e3          # maximum frequency sweep [Hz]
     zeta      = 15.2          # constant in the amplitude function [rad]
     kappa     = atan(63.6)    # constant in the frequency/phase function [rad]
     beta      = 90            # flip angle [degree]
@@ -262,7 +275,7 @@ TRd = rnd2GRT(
             - TE
             - calc_duration(gz)/2
             - calc_duration(gx)/2
-            - calc_duration(gx_spoil, gy_spoil, gz_spoil)
+            - calc_duration(gx_spoil, gz_enc_largest, gy_pre[0])
             - t_reset
 )
 
@@ -271,10 +284,6 @@ assert np.all(TRd >= 0), "Required TR can not be achieved."
 
 delay_TE = make_delay(TEd)
 delay_TR = make_delay(TRd)
-
-rf_phase = 0
-rf_inc = 0
-
 
 seq.add_block(pp.make_label(label="REV", type="SET", value=1))
 
@@ -289,33 +298,6 @@ gx.id = seq.register_grad_event(gx)
 for fa_i in range(len(alpha)):
     seq.add_block(pp.make_label(type="SET", label="SET", value=fa_i))
 
-    # Run several TRs for driving the magnetization to steady-state
-    gz_enc = pp.make_trapezoid(channel=dir_ss,area=areaZ[int(Nkz/2)],duration=Tz_enc, system=system)
-    gz_rew = pp.make_trapezoid(channel=dir_ss,area=-(areaZ[int(Nkz/2)] + gz.area/2),duration=Tz_enc, system=system)
-
-    gy_pre = pp.make_trapezoid(channel=dir_pe,area=phase_areas[int(Ny/2)],duration=pp.calc_duration(gx_pre),system=system)
-
-    for dm_i in range(Ndummy):
-
-        rf[fa_i].phase_offset = 0.5*phi0*(dm_i*dm_i + dm_i + 2)*np.pi/180
-        adc.phase_offset = rf[fa_i].phase_offset
-
-        seq.add_block(rf[fa_i], gz)
-        
-        seq.add_block(delay_TE)
-
-        seq.add_block(gx_pre, gy_pre, gz_enc)
-
-
-        seq.add_block(gx)
-        gy_pre.amplitude = -gy_pre.amplitude
-
-
-        # seq.add_block(delay_TR, gx_spoil, gy_pre, gz_spoil)
-        seq.add_block(gx_spoil, gy_spoil, gz_spoil)
-        seq.add_block(delay_TR)
-
-
     for kz_i in range(Nkz):
         # Loop over phase encodes and define sequence blocks
         seq.add_block(make_label(type="SET", label="PAR", value=Nkz-kz_i-1))
@@ -326,41 +308,40 @@ for fa_i in range(len(alpha)):
 
         gz_enc.id = seq.register_grad_event(gz_enc)
         gz_rew.id = seq.register_grad_event(gz_rew)
-        n = 0
 
-        for ky_i in range(Ny):
-            seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
-            # n = ky_i#ky_i+kz_i*Ny
-            n+=1
-            rf[fa_i].phase_offset = 0.5*phi0*(n*n + n + 2)*np.pi/180 + kz_phase_offset
-            adc.phase_offset = 0.5*phi0*(n*n + n + 2)*np.pi/180
+        # Only run dummy TRs for the first partition
+        pe_rng = None
+        if kz_i == 0:
+            pe_rng = range(-Ndummy, Ny)
+        else:
+            pe_rng = range(Ny)
+
+        for ky_i in pe_rng:
+
+            rf[fa_i].phase_offset = 0.5*phi0*(ky_i*ky_i + ky_i + 2)*np.pi/180 + kz_phase_offset
+            adc.phase_offset = 0.5*phi0*(ky_i*ky_i + ky_i + 2)*np.pi/180
 
             seq.add_block(rf[fa_i], gz)
             
-            gy_pre = make_trapezoid(
-                channel=dir_pe,
-                area=phase_areas[ky_i],
-                duration=calc_duration(gx_pre),
-                system=system,
-            )
-            # seq.add_block(gx_pre, gy_pre, gz_reph)
             seq.add_block(delay_TE)
 
-            seq.add_block(gx_pre, gy_pre, gz_enc)
+            if ky_i < 0: # Dummy TRs
+                seq.add_block(gx_pre, gy_pre[int(Ny/2)], gz_enc)
+                seq.add_block(gx)
 
-            seq.add_block(gx, adc)
-            gy_pre.amplitude = -gy_pre.amplitude
+            else:
+                seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
+                seq.add_block(gx_pre, gy_pre[ky_i], gz_enc)
+                seq.add_block(gx, adc)
 
-            # seq.add_block(delay_TR, gx_spoil, gy_pre, gz_spoil)
-            seq.add_block(gx_spoil, gy_spoil, gz_spoil)
-            
+            seq.add_block(gx_spoil, gy_rew[ky_i], gz_rew)
+
             if reset_block:
                 rf_res.phase_offset = 0.5*phi0*(n*n + n + 2)*np.pi/180
                 seq.add_block(rf_res, gx_res, gy_res, gz_res)
 
             seq.add_block(delay_TR)
             
-
 
 
 ok, error_report = seq.check_timing()

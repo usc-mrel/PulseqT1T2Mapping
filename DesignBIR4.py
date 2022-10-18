@@ -8,7 +8,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from math import pi, atan
 from numpy import interp
-from bloch.bloch import bloch
+from bloch import bloch
 
 
 # Set system limits
@@ -28,12 +28,12 @@ dt = system.rf_raster_time # [s]
 # --------------------------------------------------------------------------
 # Define parameters for a BIR-4 preparation
 # --------------------------------------------------------------------------
-T_seg     = 2e-3          # duration of one pulse segment [sec]
-b1_max    = 15            # maximum RF amplitude [uT]
+T_seg     = 3e-3          # duration of one pulse segment [sec]
+b1_max    = 10            # maximum RF amplitude [uT]
 # dw_max    = 39.8e3        # maximum frequency sweep [Hz]
-dw_max    = 39.8e3        # maximum frequency sweep [Hz]
+dw_max    = 20e3        # maximum frequency sweep [Hz]
 zeta      = 15.2          # constant in the amplitude function [rad]
-kappa     = atan(63.6)    # constant in the frequency/phase function [rad]
+kappa     = atan(63.6) #atan(63.6)    # constant in the frequency/phase function [rad]
 beta      = 90            # flip angle [degree]
 
 signal = design_bir4(T_seg, b1_max, dw_max, zeta, kappa, beta, dt)
