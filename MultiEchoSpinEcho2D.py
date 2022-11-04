@@ -325,6 +325,15 @@ for avg_i in range(nsa):  # Averages
             seq.add_block(delay_TR)
 
 
+
+ok, error_report = seq.check_timing()
+
+if ok:
+    print("Timing check passed successfully")
+else:
+    print("Timing check failed. Error listing follows:")
+    [print(e) for e in error_report]
+
 # ## **PLOTTING TIMNG DIAGRAM**
 
 if show_diag:

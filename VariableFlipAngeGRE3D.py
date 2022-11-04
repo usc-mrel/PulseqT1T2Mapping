@@ -227,38 +227,62 @@ gx_spoil = pp.make_trapezoid(channel=dir_ro, area=gx.area, system=system)
 # RESET Block
 if reset_block:
 
-    from math import atan
+    if params['reset_type'] == 'bir4':
+        from math import atan
 
-    from pypulseq.make_arbitrary_rf import make_arbitrary_rf
+        from pypulseq.make_arbitrary_rf import make_arbitrary_rf
 
-    from utils.rftools import design_bir4
+        from utils.rftools import design_bir4
 
-    # --------------------------------------------------------------------------
-    # Define parameters for a BIR-4 preparation
-    # --------------------------------------------------------------------------
-    T_seg     = 3e-3          # duration of one pulse segment [sec]
-    b1_max    = 10            # maximum RF amplitude [uT]
-    dw_max    = 20e3          # maximum frequency sweep [Hz]
-    zeta      = 15.2          # constant in the amplitude function [rad]
-    kappa     = atan(63.6)    # constant in the frequency/phase function [rad]
-    beta      = 90            # flip angle [degree]
+        # --------------------------------------------------------------------------
+        # Define parameters for a BIR-4 preparation
+        # --------------------------------------------------------------------------
+        T_seg     = 2e-3          # duration of one pulse segment [sec]
+        b1_max    = 20            # maximum RF amplitude [uT]
+        dw_max    = 20e3          # maximum frequency sweep [Hz]
+        zeta      = 15.2          # constant in the amplitude function [rad]
+        kappa     = atan(63.6)    # constant in the frequency/phase function [rad]
+        beta      = 90            # flip angle [degree]
 
-    signal = design_bir4(T_seg, b1_max, dw_max, zeta, kappa, beta, system.rf_raster_time)
+        signal = design_bir4(T_seg, b1_max, dw_max, zeta, kappa, beta, system.rf_raster_time)
 
-    # Create an RF event
-    rf_res = make_arbitrary_rf(signal=signal, flip_angle=2*pi, system=system, return_gz=False, use="saturation")
-    rf_res.signal = signal
+        # Create an RF event
+        rf_res = make_arbitrary_rf(signal=signal, flip_angle=2*pi, system=system, return_gz=False, use="saturation")
+        rf_res.signal = signal
 
-    gx_res = make_trapezoid(channel=dir_ro, area=4 * Nx * delta_k, system=system, delay=calc_duration(rf_res))
-    gy_res = make_trapezoid(channel=dir_pe, area=4 * Nx * delta_k, system=system, delay=calc_duration(rf_res))
-    gz_res = make_trapezoid(channel=dir_ss, area=4 * Nx * delta_k, system=system, delay=calc_duration(rf_res))
-    
-    gx_res.id = seq.register_grad_event(gx_res)
-    gy_res.id = seq.register_grad_event(gy_res)
-    gz_res.id = seq.register_grad_event(gz_res)
+        gx_res = make_trapezoid(channel=dir_ro, area=4 * Nx * delta_k, system=system, delay=calc_duration(rf_res))
+        gy_res = make_trapezoid(channel=dir_pe, area=4 * Nx * delta_k, system=system, delay=calc_duration(rf_res))
+        gz_res = make_trapezoid(channel=dir_ss, area=4 * Nx * delta_k, system=system, delay=calc_duration(rf_res))
+        
+        gx_res.id = seq.register_grad_event(gx_res)
+        gy_res.id = seq.register_grad_event(gy_res)
+        gz_res.id = seq.register_grad_event(gz_res)
 
-    t_reset = calc_duration(rf_res, gx_res)
+        t_reset = calc_duration(rf_res, gx_res)
 
+    elif params['reset_type'] == 'composite':
+        from pypulseq.make_block_pulse import make_block_pulse
+        # Create an RF event
+        rf45x = make_block_pulse(duration=0.3e-3, flip_angle=pi/4, phase_offset=0, system=system, use="saturation")
+        rf90y = make_block_pulse(duration=0.6e-3, flip_angle=pi/2, phase_offset=pi/2, system=system, use="saturation")
+        rf90x = make_block_pulse(duration=0.6e-3, flip_angle=pi/2, phase_offset=0, system=system, use="saturation")
+        rf45y = make_block_pulse(duration=0.3e-3, flip_angle=pi/4, phase_offset=-pi/2, system=system, use="saturation")
+        rf_ringdown_delay = make_delay(system.rf_ringdown_time + system.rf_dead_time)
+        
+        gx_res = make_trapezoid(channel=dir_ro, area=4 * Nx * delta_k, system=system)
+        gy_res = make_trapezoid(channel=dir_pe, area=4 * Nx * delta_k, system=system)
+        gz_res = make_trapezoid(channel=dir_ss, area=4 * Nx * delta_k, system=system)
+        
+        gx_res.id = seq.register_grad_event(gx_res)
+        gy_res.id = seq.register_grad_event(gy_res)
+        gz_res.id = seq.register_grad_event(gz_res)
+        t_reset = (
+              calc_duration(rf45x) + calc_duration(rf_ringdown_delay)
+            + calc_duration(rf90y) + calc_duration(rf_ringdown_delay)
+            + calc_duration(rf90x) + calc_duration(rf_ringdown_delay)
+            + calc_duration(rf45y)
+            + calc_duration(gx_res, gy_res, gz_res)
+            )
 else:
     t_reset = 0
 
@@ -337,8 +361,24 @@ for fa_i in range(len(alpha)):
             seq.add_block(gx_spoil, gy_rew[ky_i], gz_rew)
 
             if reset_block:
-                rf_res.phase_offset = 0.5*phi0*(n*n + n + 2)*np.pi/180
-                seq.add_block(rf_res, gx_res, gy_res, gz_res)
+                if params['reset_type'] == 'bir4':
+                    rf_res.phase_offset = rf[fa_i].phase_offset
+                    seq.add_block(rf_res, gx_res, gy_res, gz_res)
+                elif params['reset_type'] == 'composite':
+                    # Set additional phases, align them 90 diff with excitation
+                    rf45x.phase_offset += rf[fa_i].phase_offset
+                    rf90y.phase_offset += rf[fa_i].phase_offset
+                    rf90x.phase_offset += rf[fa_i].phase_offset
+                    rf45y.phase_offset += rf[fa_i].phase_offset
+
+                    seq.add_block(rf45x)
+                    seq.add_block(rf_ringdown_delay)
+                    seq.add_block(rf90y)
+                    seq.add_block(rf_ringdown_delay)
+                    seq.add_block(rf90x)
+                    seq.add_block(rf_ringdown_delay)
+                    seq.add_block(rf45y)
+                    seq.add_block(gx_res, gy_res, gz_res)
 
             seq.add_block(delay_TR)
             
