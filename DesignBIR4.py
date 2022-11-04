@@ -1,5 +1,6 @@
 from pypulseq import Sequence
 from pypulseq.make_arbitrary_rf import make_arbitrary_rf
+from pypulseq.make_sinc_pulse import make_sinc_pulse
 from pypulseq.make_trapezoid import make_trapezoid
 from pypulseq.calc_duration import calc_duration
 from pypulseq.opts import Opts
@@ -25,11 +26,18 @@ system = Opts(
 
 dt = system.rf_raster_time # [s]
 
+# Excitation pulse
+
+rf90, gz90, gz_reph = make_sinc_pulse(flip_angle=pi/3, system=system, duration=2.5e-3, 
+                                slice_thickness=4e-3, apodization=0.5, 
+                                time_bw_product=4, return_gz=True, use="excitation")
+gz90.channel = 'x'
+gz_reph.channel = 'x'
 # --------------------------------------------------------------------------
 # Define parameters for a BIR-4 preparation
 # --------------------------------------------------------------------------
-T_seg     = 3e-3          # duration of one pulse segment [sec]
-b1_max    = 10            # maximum RF amplitude [uT]
+T_seg     = 2e-3          # duration of one pulse segment [sec]
+b1_max    = 15            # maximum RF amplitude [uT]
 # dw_max    = 39.8e3        # maximum frequency sweep [Hz]
 dw_max    = 20e3        # maximum frequency sweep [Hz]
 zeta      = 15.2          # constant in the amplitude function [rad]
@@ -41,16 +49,16 @@ signal = design_bir4(T_seg, b1_max, dw_max, zeta, kappa, beta, dt)
 # Create an RF event
 rf_res = make_arbitrary_rf(signal=signal, flip_angle=2*pi, system=system, return_gz=False, use="saturation")
 rf_res.signal = signal
+rf_res.phase_offset = 0 #pi/2
 
-
-b1frac = np.linspace(0, 2, 200)
-df     = np.linspace(-500, 500, 200) # [Hz]
-
-
-gx_res = make_trapezoid(channel='x', area=4 * 128 * 1/0.3, system=system, delay=calc_duration(rf_res))
+gx_spoil = make_trapezoid(channel='x', area=4 * 128 * 2, system=system)
+gx_res   = make_trapezoid(channel='x', area=4 * 128 * 10, system=system, delay=calc_duration(rf_res))
 t_reset = calc_duration(rf_res, gx_res)
 
 seq = Sequence(system)
+seq.add_block(rf90, gz90)
+seq.add_block(gx_spoil)
+seq.add_block(gx_res)
 seq.add_block(rf_res, gx_res)
 
 # seq.plot(time_disp="ms")
@@ -70,7 +78,9 @@ gg = 100*interp(tt, g_waves_t, g_waves)/system.gamma # [Hz/m] -> [G/cm]
 # ---------------------------------------------------------------
 # Bloch simulation of the saturation performance
 # ---------------------------------------------------------------
-dp = 0 #np.arange(-10, 10, 0.1)
+b1frac = np.linspace(0.5, 1.5, 60)
+df     = np.linspace(-200, 200, 100) # [Hz]
+dp = 1 #np.arange(-10, 10, 0.1)
 
 t1 = 100 # [s]
 t2 = 100 # [s]

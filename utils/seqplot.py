@@ -65,7 +65,7 @@ def plot(
         sps.append(fig1.add_subplot(412, sharex=sps[0]))
         sps.append(fig1.add_subplot(413, sharex=sps[0]))
         sps.append(fig1.add_subplot(414, sharex=sps[0]))
-
+        sps.append(sps[0].twinx())
 
         t_factor_list = [1, 1e3, 1e6]
         t_factor = t_factor_list[valid_time_units.index(time_disp)]
@@ -116,7 +116,7 @@ def plot(
                     # From Pulseq: According to the information from Klaus Scheffler and indirectly from Siemens this
                     # is the present convention - the samples are shifted by 0.5 dwell
                     t = adc.delay + (np.arange(int(adc.num_samples)) + 0.5) * adc.dwell
-                    sps[1].vlines(x=t_factor * (t0 + t), ymin=-100, ymax=100, colors='b', linestyles='dashed')
+                    sps[1].vlines(x=t_factor * (t0 + t), ymin=-100, ymax=100, colors='b', linestyles=(0, (1, 10)))
 
                     # sps[1].plot(t_factor * (t0 + t), np.zeros(len(t)), "rx")
                     # sp13.plot(
@@ -154,7 +154,7 @@ def plot(
                     rf = block.rf
                     tc, ic = calc_rf_center(rf)
                     time = rf.t
-                    signal = rf.signal
+                    signal = 1e6*rf.signal/seq.system.gamma # [Hz] -> [uT]
                     if np.abs(signal[0]) != 0:
                         signal = np.insert(signal, obj=0, values=0)
                         time = np.insert(time, obj=0, values=time[0])
@@ -165,7 +165,7 @@ def plot(
                         time = np.append(time, time[-1])
 
                     sps[0].plot(t_factor * (t0 + time + rf.delay), np.abs(signal))
-                    sps[0].plot(
+                    sps[-1].plot(
                         t_factor * (t0 + time + rf.delay),
                         np.angle(
                             signal
@@ -210,13 +210,15 @@ def plot(
 
         grad_plot_labels = ["x", "y", "z"]
         # sp11.set_ylabel("ADC")
-        sps[0].set_ylabel("RF mag (Hz)")
+        sps[0].set_ylabel("RF mag (uT)")
+        sps[-1].set_ylabel("RF Phase (Rad)")
+
         # sp13.set_ylabel("RF/ADC phase (rad)")
         # sps[-1].set_xlabel(f"t ({time_disp})")
         for x in range(3):
             _label = grad_plot_labels[x]
             sps[x+1].set_ylabel(f"G{_label} ({grad_disp})")
-        sps[-1].set_xlabel(f"t ({time_disp})")
+        sps[-2].set_xlabel(f"t ({time_disp})")
 
         # Setting display limits
         disp_range = t_factor * np.array([time_range[0], min(t0, time_range[1])])
