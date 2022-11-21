@@ -3,7 +3,7 @@
 # Author: Bilal Tasdelen <tasdelen at usc dot edu>
 # -------------------------------------------------------------------
 
-## TODO:
+## TODO: AFI proper steady-state handling.
 
 import os
 from math import ceil, pi
@@ -53,6 +53,9 @@ fov = [*params['fov_inplane'], Nz*slice_thickness]  # Define FOV and resolution
 Nkz = Nz + params['kz_os_steps']
 TE  = params['TE'][0]  # Echo time
 TR  = params['TR']     # Repetition time
+is_afi = params['afi']
+if is_afi:
+    TR2 = params['TR2']
 
 slice_orientation = params['slice_orientation'] # "TRA", "COR", "SAG" 
 z = params['slice_pos'][0]
@@ -307,7 +310,18 @@ assert np.all(TEd >= 0), "Required TE can not be achieved."
 assert np.all(TRd >= 0), "Required TR can not be achieved."
 
 delay_TE = make_delay(TEd)
-delay_TR = make_delay(TRd)
+delay_TR = [make_delay(TRd)]
+
+if is_afi:
+    TR2d = rnd2GRT(
+            TR2
+            - TE
+            - calc_duration(gz)/2
+            - calc_duration(gx)/2
+            - calc_duration(gx_spoil, gz_enc_largest, gy_pre[0])
+            - t_reset
+    )
+    delay_TR.append(make_delay(TR2d))
 
 seq.add_block(pp.make_label(label="REV", type="SET", value=1))
 
@@ -315,12 +329,17 @@ seq.add_block(pp.make_label(label="REV", type="SET", value=1))
 gx_pre.id = seq.register_grad_event(gx_pre)
 gx.id = seq.register_grad_event(gx)
 
+nTR = 1
+if is_afi:
+    nTR = 2
+
 # ======
 # CONSTRUCT SEQUENCE
 # ======
 # Loop over slices
 for fa_i in range(len(alpha)):
-    seq.add_block(pp.make_label(type="SET", label="SET", value=fa_i))
+    if not is_afi:
+        seq.add_block(pp.make_label(type="SET", label="SET", value=fa_i))
 
     for kz_i in range(Nkz):
         # Loop over phase encodes and define sequence blocks
@@ -340,47 +359,56 @@ for fa_i in range(len(alpha)):
         else:
             pe_rng = range(Ny)
 
+        n_i = 0
         for ky_i in pe_rng:
+            for tr_i in range(nTR):
+                if is_afi:
+                    seq.add_block(pp.make_label(type="SET", label="SET", value=tr_i))
 
-            rf[fa_i].phase_offset = 0.5*phi0*(ky_i*ky_i + ky_i + 2)*np.pi/180 + kz_phase_offset
-            adc.phase_offset = 0.5*phi0*(ky_i*ky_i + ky_i + 2)*np.pi/180
+                # RF/ADC Phase update
+                rf_spoil_upd = 0.5*phi0*(n_i*n_i + n_i + 2)*np.pi/180
+                rf[fa_i].phase_offset = rf_spoil_upd + kz_phase_offset
+                adc.phase_offset = rf_spoil_upd
+                n_i+=1
 
-            seq.add_block(rf[fa_i], gz)
-            
-            seq.add_block(delay_TE)
+                seq.add_block(rf[fa_i], gz)
+                
+                seq.add_block(delay_TE)
 
-            if ky_i < 0: # Dummy TRs
-                seq.add_block(gx_pre, gy_pre[int(Ny/2)], gz_enc)
-                seq.add_block(gx)
+                if ky_i < 0: # Dummy TRs
+                    seq.add_block(gx_pre, gy_pre[int(Ny/2)], gz_enc)
+                    seq.add_block(gx)
+                    seq.add_block(gx_spoil, gy_rew[int(Ny/2)], gz_rew)
 
-            else:
-                seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
-                seq.add_block(gx_pre, gy_pre[ky_i], gz_enc)
-                seq.add_block(gx, adc)
 
-            seq.add_block(gx_spoil, gy_rew[ky_i], gz_rew)
+                else:
+                    seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
+                    seq.add_block(gx_pre, gy_pre[ky_i], gz_enc)
+                    seq.add_block(gx, adc)
+                    seq.add_block(gx_spoil, gy_rew[ky_i], gz_rew)
 
-            if reset_block:
-                if params['reset_type'] == 'bir4':
-                    rf_res.phase_offset = rf[fa_i].phase_offset
-                    seq.add_block(rf_res, gx_res, gy_res, gz_res)
-                elif params['reset_type'] == 'composite':
-                    # Set additional phases, align them 90 diff with excitation
-                    rf45x.phase_offset += rf[fa_i].phase_offset
-                    rf90y.phase_offset += rf[fa_i].phase_offset
-                    rf90x.phase_offset += rf[fa_i].phase_offset
-                    rf45y.phase_offset += rf[fa_i].phase_offset
 
-                    seq.add_block(rf45x)
-                    seq.add_block(rf_ringdown_delay)
-                    seq.add_block(rf90y)
-                    seq.add_block(rf_ringdown_delay)
-                    seq.add_block(rf90x)
-                    seq.add_block(rf_ringdown_delay)
-                    seq.add_block(rf45y)
-                    seq.add_block(gx_res, gy_res, gz_res)
+                if reset_block:
+                    if params['reset_type'] == 'bir4':
+                        rf_res.phase_offset = rf[fa_i].phase_offset
+                        seq.add_block(rf_res, gx_res, gy_res, gz_res)
+                    elif params['reset_type'] == 'composite':
+                        # Set additional phases, align them 90 diff with excitation
+                        rf45x.phase_offset += rf[fa_i].phase_offset
+                        rf90y.phase_offset += rf[fa_i].phase_offset
+                        rf90x.phase_offset += rf[fa_i].phase_offset
+                        rf45y.phase_offset += rf[fa_i].phase_offset
 
-            seq.add_block(delay_TR)
+                        seq.add_block(rf45x)
+                        seq.add_block(rf_ringdown_delay)
+                        seq.add_block(rf90y)
+                        seq.add_block(rf_ringdown_delay)
+                        seq.add_block(rf90x)
+                        seq.add_block(rf_ringdown_delay)
+                        seq.add_block(rf45y)
+                        seq.add_block(gx_res, gy_res, gz_res)
+
+                seq.add_block(delay_TR[tr_i])
             
 
 
