@@ -1,0 +1,15 @@
+{ 
+    "output_folder": "T1T2Mapping_seqfiles/",
+    "file_name": "IRSET1Mapping",
+    "TE": 15e-3, 
+    "ETL": 1,
+    "TR": 5,
+    "TI": 50e-3,
+    "fov_inplane": [256e-3, 256e-3],
+    "slice_thickness": 6e-3,
+    "matrix_size": [128, 128, 1],
+    "slice_orientation": "TRA",
+    "flip_angle": [90],
+    "slice_pos": [0e-3],
+    "readout_duration": 6.4e-3
+}

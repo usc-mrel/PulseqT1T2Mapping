@@ -4,7 +4,7 @@
 # -------------------------------------------------------------------
 
 ## TODO:
-# 1. **Optional:** Make 180 an adiabatic pulse.
+# 1. Test IRSE
 
 from math import pi
 
@@ -25,6 +25,7 @@ from pypulseq.points_to_waveform import points_to_waveform
 from pypulseq.convert import convert
 from pypulseq.opts import Opts
 from pypulseq.Sequence.sequence import Sequence
+from Kernels.IRKernel import IRKernel
 from utils.grad_timing import rnd2GRT
 from scipy.io import savemat
 
@@ -64,8 +65,10 @@ Nx, Ny, Nz = params['matrix_size']
 
 slice_thickness = params['slice_thickness']  # Slice thickness
 fov = [*params['fov_inplane'], Nz*slice_thickness]  # Define FOV and resolution
-TE  = params['TE'][0]  # Echo time
-TR  = params['TR']     # Repetition time
+TE  = params['TE']     # Echo time [s]
+ETL = params['ETL']    # Echo Train Length
+TR  = params['TR']     # Repetition time [s]
+TI  = params['TI']     # Inversion time [s]
 
 slice_orientation = params['slice_orientation'] # "TRA", "COR", "SAG" 
 z = params['slice_pos']
@@ -77,7 +80,7 @@ seq_folder   = params['output_folder']
 
 nsa = 1  # Number of averages
 
-TE = 15e-3*np.arange(1, 33)#[11e-3, 22e-3, 33e-3]#  # [s]
+TE = TE*np.arange(1, ETL+1)#[11e-3, 22e-3, 33e-3]#  # [s]
 
 n_slices = len(z)
 
@@ -191,7 +194,14 @@ rf180.delay = gss_spoil_6pi.rise_time + gss_spoil_6pi.flat_time + gss_spoil_6pi.
 # End of TR spoiler
 gz_spoil = make_trapezoid(channel=dir_ss, system=system, area=2/slice_thickness)
 
+# Create IR kernel if needed
 
+irk = None
+
+if TI > 0:
+    irk = IRKernel(seq, slice_thickness, TI)
+
+TI_dur = irk.duration() if TI > 0 else 0
 # ## **DELAYS**
 # Echo time (TE) and repetition time (TR).
 
@@ -212,7 +222,8 @@ for eco_i in range(0, Neco):
                 )
     else:
         pre180d = ((TE[eco_i] - TE[eco_i-1])/2 
-                - calc_duration(gx)/2 
+                - calc_duration(gx)/2
+                - pe_duration
                 - gss_bridge_duration/2
                 )
         post180d = ((TE[eco_i] - TE[eco_i-1])/2 
@@ -226,8 +237,16 @@ for eco_i in range(0, Neco):
     pre180delay.append(make_delay(rnd2GRT(pre180d)))
     post180delay.append(make_delay(rnd2GRT(post180d)))
 
-delay_TR = TR - TE[-1] - calc_duration(gx) / 2 - max(pe_duration, calc_duration(gz_spoil), calc_duration(gx_post))
+delay_TR = (TR 
+    - (TE[-1] + calc_duration(rf90)/2) 
+    - TI_dur 
+    - calc_duration(gx)/2 
+    - pe_duration 
+    - max(calc_duration(gz_spoil), calc_duration(gx_post))
+    )
+
 delay_TR = make_delay(rnd2GRT(delay_TR))
+
 
 # ## **CONSTRUCT SEQUENCE**
 # Construct sequence for one phase encode and multiple slices
@@ -268,16 +287,8 @@ for avg_i in range(nsa):  # Averages
 
         for ky_i in range(Ny):  # Phase encodes
 
-            # RF Chopping
-            # rf90.phase_offset = (ky_i*pi) % (2*pi)
-
-            # adc.phase_offset = rf90.phase_offset
-            
-
-            # if ky_i == 0:
-            #     seq.add_block(make_label(type="SET", label="LIN", value=0))
-            # else:
-            #     seq.add_block(make_label(type="INC", label="LIN", value=1))
+            if TI > 0:
+                irk.add_kernel()
 
             seq.add_block(rf90, gz90)
 
@@ -300,15 +311,6 @@ for avg_i in range(nsa):  # Averages
 
                 seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
 
-                # if (eco_i%2) == 0:
-                #     rf180.freq_offset = freq_offset
-                    # seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
-
-
-                # elif (eco_i%2) == 1:
-                #     rf180.freq_offset = -freq_offset
-                    # seq.add_block(make_label(type="SET", label="LIN", value=(Ny-1-ky_i)))
-
                 seq.add_block(pre180delay[eco_i])
                 seq.add_block(rf180, gss_bridge_)
                 seq.add_block(post180delay[eco_i])
@@ -316,9 +318,6 @@ for avg_i in range(nsa):  # Averages
                 seq.add_block(gy_pre)
                 seq.add_block(gx, adc)
                 seq.add_block(gy_post)
-
-                # if (eco_i < Neco-1):
-                #     seq.add_block(gy_shift)
             
 
             seq.add_block(gx_post, gz_spoil)
@@ -339,7 +338,7 @@ else:
 if show_diag:
     # seq.plot(time_range=(0, TR*20), time_disp='ms', grad_disp='mT/m', plot_now=False)
     from utils import seqplot
-    seqplot.plot(seq, time_range=(0, TR*20), time_disp='ms', grad_disp='mT/m', plot_now=True)
+    seqplot.plot(seq, time_range=(0, TR*5), time_disp='ms', grad_disp='mT/m', plot_now=True)
 
     # mplcursors.cursor()
     # (k_traj_adc, k_traj, t_excitation, t_refocusing, t_adc) = seq.calculate_kspace()
@@ -364,6 +363,9 @@ if write_seq:
     seq.set_definition(key="ReconMatrixSize", value=[Nx, Ny, 1])
     seq.set_definition(key="SliceOrientation", value=slice_orientation)
     
+    if TI > 0:
+        seq_filename += f"_TI{int(TI*1e3)}"
+
     seq_path = os.path.join(seq_folder, f'{seq_filename}.seq')
     seq.write(seq_path)  # Save to disk
 
