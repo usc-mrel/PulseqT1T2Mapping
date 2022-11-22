@@ -1,8 +1,10 @@
 { 
     "output_folder": "T1T2Mapping_seqfiles/",
     "file_name": "MCSET2Mapping",
-    "TE": [6e-3], 
+    "TE": 15e-3,
+    "ETL": 32,
     "TR": 5,
+    "TI": 0,
     "fov_inplane": [256e-3, 256e-3],
     "slice_thickness": 6e-3,
     "matrix_size": [128, 128, 1],
