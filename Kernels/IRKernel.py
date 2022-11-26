@@ -13,21 +13,34 @@ class IRKernel:
                                   duration=2.5e-3, 
                                   slice_thickness=2*slice_thickness, 
                                   apodization=0.5, 
-                                time_bw_product=4, phase_offset=pi/2, 
+                                time_bw_product=4, phase_offset=0, 
                                 return_gz=True, use="inversion")
         
         gz_spoil = make_trapezoid(channel='z', system=seq.system, area=4/slice_thickness)
+
+        gx_spoil = make_trapezoid(channel='x', system=seq.system, area=4/slice_thickness)
+        gy_spoil = make_trapezoid(channel='y', system=seq.system, area=4/slice_thickness)
 
 
         TId = (TI 
             - calc_duration(rf180) - gz180.fall_time 
             - calc_duration(gz_spoil)
+            - calc_duration(gx_spoil, gy_spoil, gz_spoil)
             )
         delay_TI = make_delay(rnd2GRT(TId))
 
+        # Register grad events
+        gz180.id = seq.register_grad_event(gz180)
+        gx_spoil.id = seq.register_grad_event(gx_spoil)
+        gy_spoil.id = seq.register_grad_event(gy_spoil)
+        gz_spoil.id = seq.register_grad_event(gz_spoil)
+
         self.rf = rf180
         self.gz = gz180
-        self.gss = gz_spoil
+        self.gzs = gz_spoil
+        self.gys = gy_spoil
+        self.gxs = gx_spoil
+
         self.delay = delay_TI
         self.seq = seq
         self.TI = TI
@@ -37,5 +50,6 @@ class IRKernel:
 
     def add_kernel(self):
         self.seq.add_block(self.rf, self.gz)
-        self.seq.add_block(self.gss)
+        self.seq.add_block(self.gzs)
         self.seq.add_block(self.delay)
+        self.seq.add_block(self.gxs, self.gys, self.gzs)

@@ -120,6 +120,7 @@ flip90 = round(rf_flip * pi / 180, 3)
 flip180 = 180 * pi / 180
 rf90, gz90, gz_reph = make_sinc_pulse(flip_angle=flip90, system=system, duration=2.5e-3, 
                                 slice_thickness=slice_thickness, apodization=0.5, 
+                                phase_offset=pi/2,
                                 time_bw_product=4, return_gz=True, use="excitation")
 
 
@@ -130,7 +131,7 @@ rf180, gz180, _ = make_sinc_pulse(flip_angle=flip180, system=system,
                                   duration=2.5e-3, 
                                   slice_thickness=2*slice_thickness, 
                                   apodization=0.5, 
-                                time_bw_product=4, phase_offset=pi/2, 
+                                time_bw_product=4, phase_offset=0, 
                                 return_gz=True, use="refocusing")
 
 gz180.channel = dir_ss
@@ -289,6 +290,10 @@ for avg_i in range(nsa):  # Averages
 
             if TI > 0:
                 irk.add_kernel()
+
+            # RF chopping
+            rf90.phase_offset = (rf90.phase_offset + pi) % (2*pi)
+            adc.phase_offset = rf90.phase_offset
 
             seq.add_block(rf90, gz90)
 
