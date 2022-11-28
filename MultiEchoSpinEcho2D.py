@@ -5,6 +5,7 @@
 
 ## TODO:
 # 1. Test IRSE
+# 2. Multislice
 
 from math import pi
 
@@ -74,6 +75,7 @@ slice_orientation = params['slice_orientation'] # "TRA", "COR", "SAG"
 z = params['slice_pos']
 
 readout_time = params['readout_duration']  # ADC duration
+Ndummy = params['Ndummy'] # Number 
 
 seq_filename = params['file_name']
 seq_folder   = params['output_folder']
@@ -129,7 +131,7 @@ gz_reph.channel = dir_ss
                                  
 rf180, gz180, _ = make_sinc_pulse(flip_angle=flip180, system=system, 
                                   duration=2.5e-3, 
-                                  slice_thickness=2*slice_thickness, 
+                                  slice_thickness=1.25*slice_thickness, 
                                   apodization=0.5, 
                                 time_bw_product=4, phase_offset=0, 
                                 return_gz=True, use="refocusing")
@@ -151,11 +153,6 @@ adc = make_adc(num_samples=Nx, duration=readout_time, delay=gx.rise_time)
 # phase_areas = (np.arange(Ny) - (Ny / 2)) * delta_k
 phase_areas = np.linspace(-0.5*delta_k*Ny, 0.5*delta_k*Ny, Ny) # Stagger ky axis by delta_ky/2 to avoid ky shift at odd numbered echoes.
 
-# gz_reph2 = make_trapezoid(channel='z', system=system, area=-gz90.area / 2,
-#                          duration=2.5e-3)
-
-# gy_shift = make_trapezoid(channel=dir_pe, system=system, area=-delta_k) # Provides 1 sample shift along k_y to fix the next echo's phase encode
-
 gy_pe_max = make_trapezoid(channel=dir_pe, system=system, area=np.max(np.abs(phase_areas)))
 pe_duration = calc_duration(gy_pe_max)
 
@@ -163,7 +160,9 @@ gx_pre = make_trapezoid(channel=dir_ro, system=system, area=(gx.area)/2)
 gx_post = make_trapezoid(channel=dir_ro, system=system, area=3*gx.area/2)
 
 # ## **SPOILER**
-gss_spoil_6piarea = 4/slice_thickness -(gz180.area-gz180.flat_area)/2
+gss_bridges = []
+
+gss_spoil_6piarea = 4/slice_thickness #-(gz180.area-gz180.flat_area)/2
 gss_spoil_4piarea = 2/slice_thickness
 gss_spoil_6pi = make_trapezoid(channel=dir_ss, system=system, area=gss_spoil_6piarea)
 gss_spoil_4pi = make_trapezoid(channel=dir_ss, system=system, area=gss_spoil_4piarea, rise_time=gss_spoil_6pi.rise_time, flat_time=gss_spoil_6pi.flat_time)
@@ -179,18 +178,15 @@ gss_times = np.cumsum([0, gss_spoil_6pi.rise_time, gss_spoil_6pi.flat_time,
 gss_amps_6pi = np.array([0, gss_spoil_6pi.amplitude, gss_spoil_6pi.amplitude, gz180.amplitude, gz180.amplitude, gss_spoil_6pi.amplitude, gss_spoil_6pi.amplitude, 0])
 gss_amps_4pi = np.array([0, gss_spoil_4pi.amplitude, gss_spoil_4pi.amplitude, gz180.amplitude, gz180.amplitude, gss_spoil_4pi.amplitude, gss_spoil_4pi.amplitude, 0])
 
-gss_bridges = []
 gss_bridges.append(make_extended_trapezoid(channel=dir_ss, amplitudes=gss_amps_6pi, times=gss_times, system=system))
 gss_bridges.append(make_extended_trapezoid(channel=dir_ss, amplitudes=-gss_amps_6pi, times=gss_times, system=system))
 gss_bridges.append(make_extended_trapezoid(channel=dir_ss, amplitudes=gss_amps_4pi, times=gss_times, system=system))
 gss_bridges.append(make_extended_trapezoid(channel=dir_ss, amplitudes=-gss_amps_4pi, times=gss_times, system=system))
 
-gss_bridge_duration = calc_duration(gss_bridges[0])
-
-# gss_bridge     = make_extended_trapezoid(channel=dir_ss, amplitudes=gss_amps, times=gss_times, system=system)
-# gss_bridge_neg = make_extended_trapezoid(channel=dir_ss, amplitudes=-gss_amps, times=gss_times, system=system)
-
 rf180.delay = gss_spoil_6pi.rise_time + gss_spoil_6pi.flat_time + gss_spoil_6pi.fall_time - gz180.rise_time
+
+
+gss_bridge_duration = calc_duration(gss_bridges[0])
 
 # End of TR spoiler
 gz_spoil = make_trapezoid(channel=dir_ss, system=system, area=2/slice_thickness)
@@ -200,7 +196,7 @@ gz_spoil = make_trapezoid(channel=dir_ss, system=system, area=2/slice_thickness)
 irk = None
 
 if TI > 0:
-    irk = IRKernel(seq, slice_thickness, TI)
+    irk = IRKernel(seq, 1.25*slice_thickness, TI)
 
 TI_dur = irk.duration() if TI > 0 else 0
 # ## **DELAYS**
@@ -286,7 +282,7 @@ for avg_i in range(nsa):  # Averages
 
         rf180.phase_offset = rf180.phase_offset - 2*pi*rf180.freq_offset*calc_rf_center(rf180)[0] #dito
 
-        for ky_i in range(Ny):  # Phase encodes
+        for ky_i in range(-Ndummy, Ny):  # Phase encodes
 
             if TI > 0:
                 irk.add_kernel()
@@ -297,31 +293,38 @@ for avg_i in range(nsa):  # Averages
 
             seq.add_block(rf90, gz90)
 
-            gy_pre = make_trapezoid(channel=dir_pe, system=system, 
-                                    area=phase_areas[-ky_i -1], duration=pe_duration)
-            gy_post = make_trapezoid(channel=dir_pe, system=system, 
-                                    area=-phase_areas[-ky_i -1], duration=pe_duration)
+            if ky_i >= 0:
+                gy_pre = make_trapezoid(channel=dir_pe, system=system, 
+                                        area=phase_areas[-ky_i -1], duration=pe_duration)
+                gy_post = make_trapezoid(channel=dir_pe, system=system, 
+                                        area=-phase_areas[-ky_i -1], duration=pe_duration)
+            else: # Dummy
+                gy_pre = make_trapezoid(channel=dir_pe, system=system, 
+                                        area=phase_areas[Ny//2], duration=pe_duration)
+                gy_post = make_trapezoid(channel=dir_pe, system=system, 
+                                        area=-phase_areas[Ny//2], duration=pe_duration)
 
             seq.add_block(gx_pre, gz_reph)
 
             for eco_i in range(Neco):
-                if eco_i == 0:
-                    seq.add_block(make_label(type="SET", label="SET", value=0))
-                elif eco_i > 0:
-                    seq.add_block(make_label(type="INC", label="SET", value=1))
                 
                 # Alternate between bridges
                 # gss_bridge_ = gss_bridges[eco_i%2]
                 gss_bridge_ = gss_bridges[0]
-
-                seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
 
                 seq.add_block(pre180delay[eco_i])
                 seq.add_block(rf180, gss_bridge_)
                 seq.add_block(post180delay[eco_i])
 
                 seq.add_block(gy_pre)
-                seq.add_block(gx, adc)
+                
+                if ky_i < 0:
+                    seq.add_block(gx)
+                else:
+                    seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
+                    seq.add_block(make_label(type="SET", label="SET", value=eco_i))
+                    seq.add_block(gx, adc)
+
                 seq.add_block(gy_post)
             
 
@@ -361,7 +364,11 @@ if detailed_rep:
 
 if write_seq:
     seq.set_definition(key="FOV", value=fov)
-    seq.set_definition(key="Name", value="mese2d")
+    if TI > 0:
+        seq.set_definition(key="Name", value="irse2d")
+    else:
+        seq.set_definition(key="Name", value="mcse2d")
+
     seq.set_definition(key="TE", value=TE)
     seq.set_definition(key="TR", value=TR)
     seq.set_definition(key="FA", value=flip90)
