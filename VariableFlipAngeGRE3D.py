@@ -55,9 +55,7 @@ fov = [*params['fov_inplane'], Nz*slice_thickness]  # Define FOV and resolution
 Nkz = Nz + params['kz_os_steps']
 TE  = params['TE'][0]  # Echo time
 TR  = params['TR']     # Repetition time
-is_afi = params['afi']
-if is_afi:
-    TR2 = params['TR2']
+
 
 z = params['slice_pos'][0]
 
@@ -83,9 +81,9 @@ seq = pp.Sequence(system)  # Create a new sequence object
 
 delta_k = 1 / fov[0]
 
-params_gre = params
+params_gre = params.copy()
 params_gre['flip_angle'] = params['flip_angle'][0]
-GREKernel = FISPKernel(seq, params)
+GREKernel = FISPKernel(seq, params_gre)
 
 # RESET Block
 ResBlock = None
@@ -103,28 +101,30 @@ TRd = rnd2GRT(
 
 assert np.all(TRd >= 0), "Required TR can not be achieved."
 
-# delay_TE = make_delay(TEd)
-delay_TR = [make_delay(TRd)]
+delay_TR = make_delay(TRd)
 
+
+is_afi = params['afi']
 if is_afi:
+    phi0 = 129.3 # AFI RF spoiling increment
+
+    params_gre2 = params_gre.copy()
+    params_gre2['TR'] = params['TR2']
+    GREKernel2 = FISPKernel(seq, params_gre2, params['TR2']/params['TR'])
+
+    TR2 = params['TR2']
     TR2d = rnd2GRT(
             TR2
             - TE
-            - calc_duration(gz)/2
-            - calc_duration(gx)/2
-            - calc_duration(gx_spoil, gz_enc_largest, gy_pre[0])
-            - t_reset
+            - GREKernel2.duration()
     )
-    delay_TR.append(make_delay(TR2d))
+    delay_TR2 = make_delay(TR2d)
+
+else:
+    phi0 = 117  # conventional RF spoiling increment
 
 seq.add_block(pp.make_label(label="REV", type="SET", value=1))
 
-nTR = 1
-if is_afi:
-    nTR = 2
-    phi0 = 129.3 # AFI RF spoiling increment
-else:
-    phi0 = 117  # conventional RF spoiling increment
 
 
 # =============================================================================
@@ -133,8 +133,8 @@ else:
 # Loop over slices
 for fa_i in range(len(alpha)):
     GREKernel.update_flip_angle(alpha[fa_i])
-    if not is_afi:
-        seq.add_block(pp.make_label(type="SET", label="SET", value=fa_i))
+
+    seq.add_block(pp.make_label(type="SET", label="SET", value=fa_i))
 
     for kz_i in range(Nkz):
         # Loop over phase encodes and define sequence blocks
@@ -150,27 +150,32 @@ for fa_i in range(len(alpha)):
 
         n_i = 0
         for ky_i in pe_rng:
-            for tr_i in range(nTR):
-                if is_afi:
-                    seq.add_block(pp.make_label(type="SET", label="SET", value=tr_i))
 
                 # RF/ADC Phase update
                 rf_spoil_upd = 0.5*phi0*(n_i*n_i + n_i + 2)*np.pi/180
-                
                 n_i+=1
                 # if tr_i==1:
                 #     n_i+=(TR2//TR-1)                
 
                 if ky_i < 0: # Dummy TRs
                     GREKernel.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False)
-
                 else:
-                    GREKernel.add_kernel(ky_i, kz_i, rf_spoil_upd)
+                    seq.add_block(make_label(type="SET", label="SEG", value=0))
+                    GREKernel.add_kernel(ky_i, kz_i, rf_spoil_upd) # TODO: RF spoil update
+
+                if is_afi:
+                    rf_spoil_upd = 0.5*phi0*(n_i*n_i + n_i + 2)*np.pi/180
+                    n_i+=1
+                    if ky_i < 0: # Dummy TRs
+                        GREKernel2.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False)
+                    else:
+                        seq.add_block(make_label(type="SET", label="SEG", value=1))
+                        GREKernel2.add_kernel(ky_i, kz_i, rf_spoil_upd)
 
                 if reset_block:
-                    MagSatKernel.add_kernel(rf[fa_i].phase_offset)
+                    MagSatKernel.add_kernel(rf_spoil_upd)
 
-                seq.add_block(delay_TR[tr_i])
+                seq.add_block(delay_TR)
             
 
 
