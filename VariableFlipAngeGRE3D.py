@@ -56,7 +56,6 @@ Nkz = Nz + params['kz_os_steps']
 TE  = params['TE'][0]  # Echo time
 TR  = params['TR']     # Repetition time
 
-
 z = params['slice_pos'][0]
 
 ro_duration = params['readout_duration']  # ADC duration
@@ -65,6 +64,12 @@ seq_filename = params['file_name']
 seq_folder   = params['output_folder']
 
 reset_block = params['reset_block']
+
+
+# Sanity check the input params
+if params['afi'] and len(alpha) > 1:
+    print("AFI is on, and multiple flip-angle supplied. Only using the first flip angle, discarding the rest.")
+    alpha = [alpha[0]]
 
 # Set system limits
 system = Opts(
@@ -79,11 +84,12 @@ system = Opts(
 
 seq = pp.Sequence(system)  # Create a new sequence object
 
+A = 2.5 # Spoiler area wrt gx (how many 2pi across voxel in x direction)
 delta_k = 1 / fov[0]
 
 params_gre = params.copy()
 params_gre['flip_angle'] = params['flip_angle'][0]
-GREKernel = FISPKernel(seq, params_gre)
+GREKernel = FISPKernel(seq, params_gre, crasher_ratio=A)
 
 # RESET Block
 ResBlock = None
@@ -107,15 +113,14 @@ delay_TR = make_delay(TRd)
 is_afi = params['afi']
 if is_afi:
     phi0 = 129.3 # AFI RF spoiling increment
-
+    Ntr = params['TR2']/params['TR']
     params_gre2 = params_gre.copy()
     params_gre2['TR'] = params['TR2']
-    GREKernel2 = FISPKernel(seq, params_gre2, params['TR2']/params['TR'])
+    GREKernel2 = FISPKernel(seq, params_gre2, ((2*A+1)*Ntr-1)/2)
 
     TR2 = params['TR2']
     TR2d = rnd2GRT(
             TR2
-            - TE
             - GREKernel2.duration()
     )
     delay_TR2 = make_delay(TR2d)
@@ -160,24 +165,28 @@ for fa_i in range(len(alpha)):
                 if ky_i < 0: # Dummy TRs
                     GREKernel.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False)
                 else:
-                    seq.add_block(make_label(type="SET", label="SEG", value=0))
+                    seq.add_block(make_label(type="SET", label="SET", value=0))
+                    seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
                     GREKernel.add_kernel(ky_i, kz_i, rf_spoil_upd) # TODO: RF spoil update
-
-                if is_afi:
-                    rf_spoil_upd = 0.5*phi0*(n_i*n_i + n_i + 2)*np.pi/180
-                    n_i+=1
-                    if ky_i < 0: # Dummy TRs
-                        GREKernel2.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False)
-                    else:
-                        seq.add_block(make_label(type="SET", label="SEG", value=1))
-                        GREKernel2.add_kernel(ky_i, kz_i, rf_spoil_upd)
 
                 if reset_block:
                     MagSatKernel.add_kernel(rf_spoil_upd)
 
                 seq.add_block(delay_TR)
-            
 
+                if is_afi:
+                    rf_spoil_upd = 0.5*phi0*(n_i*n_i + n_i + 2)*np.pi/180
+                    n_i+=Ntr
+                    if ky_i < 0: # Dummy TRs
+                        GREKernel2.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False)
+                    else:
+                        seq.add_block(make_label(type="SET", label="SET", value=1))
+                        GREKernel2.add_kernel(ky_i, kz_i, rf_spoil_upd)
+
+                    seq.add_block(delay_TR2)
+
+
+        
 
 ok, error_report = seq.check_timing()
 
@@ -191,7 +200,7 @@ else:
 # VISUALIZATION
 # ===============
 if show_diag:
-    seqplot.plot(seq, time_range=((Ndummy+1)*TR, (Ndummy+21)*TR), time_disp="ms", grad_disp="mT/m", plot_now=True)
+    seqplot.plot(seq, time_range=((150)*TR2, (200)*TR2), time_disp="ms", grad_disp="mT/m", plot_now=True)
 
 
 if detailed_rep:

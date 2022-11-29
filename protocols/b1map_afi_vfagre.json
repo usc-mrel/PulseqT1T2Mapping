@@ -1,6 +1,6 @@
 { 
     "output_folder": "T1T2Mapping_seqfiles/",
-    "file_name": "AFI_FA60",
+    "file_name": "AFI_FA40",
     "TE": [6e-3], 
     "TR": 15e-3,
     "fov_inplane": [256e-3, 256e-3],
@@ -8,7 +8,7 @@
     "kz_os_steps": 8,
     "matrix_size": [64, 64, 20],
     "slice_orientation": "TRA",
-    "flip_angle": [60],
+    "flip_angle": [40],
     "exc_pulse_type": "slr",
     "slice_pos": [0e-3],
     "readout_duration": 6.4e-3,
