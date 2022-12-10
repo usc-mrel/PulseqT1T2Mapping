@@ -72,29 +72,30 @@ if params['afi'] and len(alpha) > 1:
     alpha = [alpha[0]]
 
 # Set system limits
+sys_params = load_params("lospecs", "./systems")
 system = Opts(
-    max_grad = 15, grad_unit="mT/m",
-    max_slew = 40, slew_unit="T/m/s",
-    grad_raster_time =  10e-6, # [s] ( 10 us)
-    rf_raster_time   =   1e-6, # [s] (  1 us)
-    rf_ringdown_time =  10e-6, # [s] ( 10 us)
-    rf_dead_time     = 100e-6, # [s] (100 us)
-    adc_dead_time    =  10e-6, # [s] ( 10 us)
+    max_grad = sys_params['max_grad'], grad_unit="mT/m",
+    max_slew = sys_params['max_slew'], slew_unit="T/m/s",
+    grad_raster_time = sys_params['grad_raster_time'],  # [s] ( 10 us)
+    rf_raster_time   = sys_params['rf_raster_time'],    # [s] (  1 us)
+    rf_ringdown_time = sys_params['rf_ringdown_time'],  # [s] ( 10 us)
+    rf_dead_time     = sys_params['rf_dead_time'],      # [s] (100 us)
+    adc_dead_time    = sys_params['adc_dead_time'],     # [s] ( 10 us)
 )
 
 seq = pp.Sequence(system)  # Create a new sequence object
 
-A = 2.5 # Spoiler area wrt gx (how many 2pi across voxel in x direction)
+A = (300)*1e-6*system.gamma # Spoiler area in Hz [mT.ms/m] -> [Hz.s/m]
 delta_k = 1 / fov[0]
 
 params_gre = params.copy()
 params_gre['flip_angle'] = params['flip_angle'][0]
-GREKernel = FISPKernel(seq, params_gre, crasher_ratio=A)
+GREKernel = FISPKernel(seq, params_gre, spoiler_area=A, spoiler_axes='xyz')
 
 # RESET Block
 ResBlock = None
 if reset_block:
-    ResBlock = MagSatKernel(seq, params['reset_type'], crasher_area=4*Nx*delta_k)
+    ResBlock = MagSatKernel(seq, params['reset_type'], crasher_area=A)
 
 t_reset = ResBlock.duration() if reset_block else 0
 
@@ -112,21 +113,21 @@ delay_TR = make_delay(TRd)
 
 is_afi = params['afi']
 if is_afi:
-    phi0 = 129.3 # AFI RF spoiling increment
-    Ntr = params['TR2']/params['TR']
-    params_gre2 = params_gre.copy()
-    params_gre2['TR'] = params['TR2']
-    GREKernel2 = FISPKernel(seq, params_gre2, ((2*A+1)*Ntr-1)/2)
+    phi0 = 39 # AFI RF spoiling increment
+    Ntr = int(params['TR2']/params['TR'])
+    # params_gre2 = params_gre.copy()
+    # params_gre2['TR'] = params['TR2']
+    # GREKernel2 = FISPKernel(seq, params_gre2, ((2*A+1)*Ntr-1)/2)
 
-    TR2 = params['TR2']
-    TR2d = rnd2GRT(
-            TR2
-            - GREKernel2.duration()
-    )
-    delay_TR2 = make_delay(TR2d)
+    # TR2 = params['TR2']
+    # TR2d = rnd2GRT(
+    #         TR2
+    #         - GREKernel2.duration()
+    # )
+    # delay_TR2 = make_delay(TR2d)
 
 else:
-    phi0 = 117  # conventional RF spoiling increment
+    phi0 = 169  # 117 is conventional RF spoiling increment, 169 is for VFA T1 mapping
 
 seq.add_block(pp.make_label(label="REV", type="SET", value=1))
 
@@ -160,30 +161,55 @@ for fa_i in range(len(alpha)):
                 rf_spoil_upd = 0.5*phi0*(n_i*n_i + n_i + 2)*np.pi/180
                 n_i+=1
                 # if tr_i==1:
-                #     n_i+=(TR2//TR-1)                
+                #     n_i+=(TR2//TR-1)           
+
 
                 if ky_i < 0: # Dummy TRs
                     GREKernel.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False)
                 else:
-                    seq.add_block(make_label(type="SET", label="SET", value=0))
+                    if is_afi:
+                        seq.add_block(make_label(type="SET", label="SET", value=0))
+
                     seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
-                    GREKernel.add_kernel(ky_i, kz_i, rf_spoil_upd) # TODO: RF spoil update
+                    GREKernel.add_kernel(ky_i, kz_i, rf_spoil_upd)
 
                 if reset_block:
-                    MagSatKernel.add_kernel(rf_spoil_upd)
+                    ResBlock.add_kernel(phase_offset=rf_spoil_upd+pi/2)
 
                 seq.add_block(delay_TR)
 
                 if is_afi:
                     rf_spoil_upd = 0.5*phi0*(n_i*n_i + n_i + 2)*np.pi/180
-                    n_i+=Ntr
+                    # n_i+=Ntr # Skip the virtual pulse idxs
+                    n_i+=1
                     if ky_i < 0: # Dummy TRs
-                        GREKernel2.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False)
+                        GREKernel.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False)
                     else:
                         seq.add_block(make_label(type="SET", label="SET", value=1))
-                        GREKernel2.add_kernel(ky_i, kz_i, rf_spoil_upd)
+                        GREKernel.add_kernel(ky_i, kz_i, rf_spoil_upd)
+                
+                    seq.add_block(delay_TR)
 
-                    seq.add_block(delay_TR2)
+                    # Virtual TRs
+                    for tr_i in range(Ntr-1):
+                        if ky_i < 0: # Dummy TRs
+                            GREKernel.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False, play_rf=False)
+                        else:
+                            GREKernel.add_kernel(ky_i, kz_i, rf_spoil_upd, is_acq=False, play_rf=False)
+
+                        seq.add_block(delay_TR)
+
+
+                # if is_afi:
+                #     rf_spoil_upd = 0.5*phi0*(n_i*n_i + n_i + 2)*np.pi/180
+                #     n_i+=Ntr
+                #     if ky_i < 0: # Dummy TRs
+                #         GREKernel2.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False)
+                #     else:
+                #         seq.add_block(make_label(type="SET", label="SET", value=1))
+                #         GREKernel2.add_kernel(ky_i, kz_i, rf_spoil_upd)
+
+                    # seq.add_block(delay_TR2)
 
 
         
@@ -200,7 +226,7 @@ else:
 # VISUALIZATION
 # ===============
 if show_diag:
-    seqplot.plot(seq, time_range=((150)*TR2, (200)*TR2), time_disp="ms", grad_disp="mT/m", plot_now=True)
+    seqplot.plot_bokeh(seq, time_range=((150)*TR, (200)*TR), time_disp="ms", grad_disp="mT/m", plot_now=True)
 
 
 if detailed_rep:
@@ -221,6 +247,10 @@ if write_seq:
     seq.set_definition(key="TR", value=TR)
     seq.set_definition(key="FA", value=alpha)
     seq.set_definition(key="ReconMatrixSize", value=[Nx, Ny, Nz])
+
+    seq_filename+=f"_TR{int(TR*1e3)}"
+    if is_afi:
+        seq_filename+=f"_N{int(Ntr)}"
 
     seq_path = os.path.join(seq_folder, f'{seq_filename}.seq')
     seq.write(seq_path)  # Save to disk

@@ -1,19 +1,20 @@
 { 
     "output_folder": "T1T2Mapping_seqfiles/",
-    "file_name": "AFI",
+    "file_name": "SDAM_bir4_FA30",
     "TE": [4e-3], 
-    "TR": 20e-3,
+    "TR": 0.1,
     "fov_inplane": [256e-3, 256e-3],
     "slice_thickness": 4e-3,
     "kz_os_steps": 8,
     "matrix_size": [64, 64, 20],
     "slice_orientation": "TRA",
-    "flip_angle": [60],
+    "flip_angle": [30, 60],
     "exc_pulse_type": "slr",
     "slice_pos": [0e-3],
     "readout_duration": 3.2e-3,
-    "Ndummy": 100,
-    "reset_block": false,
-    "afi": true,
-    "TR2": 100e-3
+    "Ndummy": 50,
+    "reset_block": true,
+    "reset_type": "bir4",
+    "afi": false,
+    "TR2": 0
 }

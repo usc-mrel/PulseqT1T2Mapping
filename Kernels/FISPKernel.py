@@ -5,13 +5,15 @@ from pypulseq.make_trapezoid import make_trapezoid
 from pypulseq.make_delay import make_delay
 from pypulseq.make_adc import make_adc
 from pypulseq.Sequence.sequence import Sequence
-from math import ceil, pi
+from math import ceil, pi, sqrt
 from sigpy.mri.rf import slr
 import numpy as np
 from utils.grad_timing import rnd2GRT
 
 class FISPKernel:
-    def __init__(self, seq: Sequence, params: dict, crasher_ratio: float = 1.0) -> None:
+    def __init__(self, seq: Sequence, params: dict, 
+                 spoiler_area: float, spoiler_axes: str = 'x'
+                 ) -> None:
 
         # Read params
         Nx, Ny, Nz = params['matrix_size']
@@ -115,7 +117,13 @@ class FISPKernel:
         Tz_enc = calc_duration(gz_enc_largest)
 
         # Gradient spoiling
-        gx_spoil = make_trapezoid(channel='x', area=crasher_ratio*gx.area, system=system)
+        spoiler_area_peraxis = spoiler_area/sqrt(len(spoiler_axes))
+        spoiler_grads = []
+
+        for ax in spoiler_axes:
+            spoiler_grads.append(make_trapezoid(channel=ax, area=spoiler_area_peraxis, system=system))
+        
+        # gx_spoil = make_trapezoid(channel='x', area=spoiler_area_peraxis, system=system)
 
         TEd = rnd2GRT(
             TE
@@ -162,7 +170,8 @@ class FISPKernel:
         self.gy_rew = gy_rew
         self.gz_enc = gz_enc
         self.gz_rew = gz_rew
-        self.gx_spoil = gx_spoil
+        # self.gx_spoil = gx_spoil
+        self.gspoilers = spoiler_grads
 
 
     def update_flip_angle(self, new_FA):
@@ -175,19 +184,24 @@ class FISPKernel:
             self.TE
             + calc_duration(self.gz)/2
             + calc_duration(self.gx)/2
-            + calc_duration(self.gx_spoil, self.gz_rew[0], self.gy_rew[0])
+            # + calc_duration(self.gx_spoil, self.gz_rew[0], self.gy_rew[0])
+            + calc_duration(self.gz_rew[0], self.gy_rew[0])
+            + calc_duration(*(self.gspoilers))
         )
         return tot_dur
 
-    def add_kernel(self, ky_i: int, kz_i: int, rf_spoil_upd: float, is_acq: bool = True):
+    def add_kernel(self, ky_i: int, kz_i: int, rf_spoil_upd: float, is_acq: bool = True, play_rf: bool = True):
         seq = self.seq
 
         # RF/ADC Phase update
         self.rf.phase_offset = rf_spoil_upd
         self.adc.phase_offset = rf_spoil_upd
 
-        seq.add_block(self.rf, self.gz)
-        
+        if play_rf:
+            seq.add_block(self.rf, self.gz)
+        else:
+            seq.add_block(self.gz)
+
         seq.add_block(self.delay_TE)
 
         seq.add_block(self.gx_pre, self.gy_pre[ky_i], self.gz_enc[kz_i])
@@ -197,4 +211,7 @@ class FISPKernel:
         else:
             seq.add_block(self.gx)
 
-        seq.add_block(self.gx_spoil, self.gy_rew[ky_i], self.gz_rew[kz_i])
+        # seq.add_block(self.gx_spoil, self.gy_rew[ky_i], self.gz_rew[kz_i])
+        seq.add_block(self.gy_rew[ky_i], self.gz_rew[kz_i])
+        seq.add_block(*(self.gspoilers))
+

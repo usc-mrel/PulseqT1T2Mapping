@@ -26,7 +26,7 @@ class MagSatKernel:
             # Define parameters for a BIR-4 preparation
             # --------------------------------------------------------------------------
             T_seg     = 2e-3          # duration of one pulse segment [sec]
-            b1_max    = 20            # maximum RF amplitude [uT]
+            b1_max    = 15            # maximum RF amplitude [uT]
             dw_max    = 20e3          # maximum frequency sweep [Hz]
             zeta      = 15.2          # constant in the amplitude function [rad]
             kappa     = atan(63.6)    # constant in the frequency/phase function [rad]
@@ -40,6 +40,7 @@ class MagSatKernel:
 
 
             t_rf = calc_duration(rf_res)
+            self.rfs = (rf_res, )
 
         elif reset_type == 'composite':
             from pypulseq.make_block_pulse import make_block_pulse
@@ -70,11 +71,11 @@ class MagSatKernel:
         gx_res.id = seq.register_grad_event(gx_res)
         gy_res.id = seq.register_grad_event(gy_res)
         gz_res.id = seq.register_grad_event(gz_res)
-        t_reset = t_rf + calc_duration(gx_res, gy_res, gz_res)
 
-        self.t_reset = t_reset
+        # Store necessary variables
+        self.seq = seq
+        self.t_reset = t_rf + calc_duration(gx_res, gy_res, gz_res)
         self.reset_type = reset_type
-
         self.gx = gx_res
         self.gy = gy_res
         self.gz = gz_res
@@ -85,6 +86,8 @@ class MagSatKernel:
     def add_kernel(self, phase_offset: float = 0):
         if self.reset_type == 'bir4':
             self.rfs[0].phase_offset = phase_offset
+
+            self.seq.add_block(self.rfs[0])
             self.seq.add_block(self.gx, self.gy, self.gz)
         elif self.reset_type == 'composite':
             # Set additional phases, align them 90 diff with excitation
