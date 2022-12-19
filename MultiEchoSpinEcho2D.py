@@ -91,14 +91,15 @@ n_slices = len(z)
 # Set the hardware limits and initialize sequence object
 
 # Set system limits
+sys_params = load_params("lospecs", "./systems")
 system = Opts(
-    max_grad = 15, grad_unit="mT/m",
-    max_slew = 40, slew_unit="T/m/s",
-    grad_raster_time =  10e-6, # [s] ( 10 us)
-    rf_raster_time   =   1e-6, # [s] (  1 us)
-    rf_ringdown_time =  10e-6, # [s] ( 10 us)
-    rf_dead_time     = 100e-6, # [s] (100 us)
-    adc_dead_time    =  10e-6, # [s] ( 10 us)
+    max_grad = sys_params['max_grad'], grad_unit="mT/m",
+    max_slew = sys_params['max_slew'], slew_unit="T/m/s",
+    grad_raster_time = sys_params['grad_raster_time'],  # [s] ( 10 us)
+    rf_raster_time   = sys_params['rf_raster_time'],    # [s] (  1 us)
+    rf_ringdown_time = sys_params['rf_ringdown_time'],  # [s] ( 10 us)
+    rf_dead_time     = sys_params['rf_dead_time'],      # [s] (100 us)
+    adc_dead_time    = sys_params['adc_dead_time'],     # [s] ( 10 us)
 )
 
 seq = Sequence(system)
