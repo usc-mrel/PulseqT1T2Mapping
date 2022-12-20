@@ -300,7 +300,7 @@ def plot_bokeh(
             raise ValueError("Unsupported gradient unit. Supported gradient units are: " + str(valid_grad_units))
 
         spb = []
-        spb.append(figure(output_backend="webgl", sizing_mode="scale_both"))
+        spb.append(figure(output_backend="webgl", sizing_mode="scale_width"))
         spb.append(figure(x_range=spb[0].x_range, output_backend="webgl", sizing_mode="scale_width"))
         spb.append(figure(x_range=spb[0].x_range, output_backend="webgl", sizing_mode="scale_width"))
         spb.append(figure(x_range=spb[0].x_range, output_backend="webgl", sizing_mode="scale_width"))
@@ -533,5 +533,5 @@ def plot_bokeh(
             # fig1.savefig("seq_plot1.jpg")
         
         if plot_now:
-            show(column(spb, sizing_mode="scale_both"), browser='chromium', sizing_mode="scale_both")
+            show(column(spb, sizing_mode="scale_both"), browser='chrome', sizing_mode="scale_both")
             plt.show()

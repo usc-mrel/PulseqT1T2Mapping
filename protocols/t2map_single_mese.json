@@ -11,5 +11,6 @@
     "slice_orientation": "TRA",
     "flip_angle": [90],
     "slice_pos": [0e-3],
-    "readout_duration": 6.4e-3
+    "readout_duration": 6.4e-3,
+    "Ndummy": 0
 }
