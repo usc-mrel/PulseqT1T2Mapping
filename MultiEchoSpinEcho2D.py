@@ -76,7 +76,7 @@ n_slices = len(z)
 # Sanity check parameters
 
 # Can not have single echo multi contrast SE with IRSE
-if single_echo and TI > 0:
+if single_echo and len(TI) > 0:
     raise ValueError("Can not have single echo multi contrast SE with IRSE.")
 
 # ## **SYSTEM LIMITS**
@@ -98,12 +98,10 @@ seq = Sequence(system)
 
 # Create IR kernel if needed
 
-irk = None
+irkernels = []
 
-if TI > 0:
-    irk = IRKernel(seq, 1.25*slice_thickness, TI)
-
-TI_dur = irk.duration() if TI > 0 else 0
+for ti_ in TI:
+    irkernels.append(IRKernel(seq, 1.25*slice_thickness, ti_))
 
 # ## **DELAYS**
 delay_TR = []
@@ -112,12 +110,15 @@ se_kernels = []
 if ETL == 1 or not single_echo:
     se_kernels.append(SEKernel(seq, params))
 
-    TRd = (TR 
-    - TI_dur 
-    - se_kernels[-1].duration()
-    )
+    # TRd = (TR 
+    # - TI_dur 
+    # - se_kernels[-1].duration()
+    # )
 
-    delay_TR.append(make_delay(rnd2GRT(TRd)))
+    TRd = (TR - irk.duration() - se_kernels[-1].duration() for irk in irkernels)
+
+    for trd_i in TRd:
+        delay_TR.append(make_delay(rnd2GRT(trd_i)))
 
 else:
 
@@ -129,7 +130,6 @@ else:
         se_kernels.append(SEKernel(seq, dummy_params))
 
         TRd = (TR 
-            - TI_dur 
             - se_kernels[-1].duration()
         )
 
@@ -143,12 +143,15 @@ seq.add_block(make_label(label="REV", type="SET", value=1))
 
 seq.add_block(make_label(label="PAR", type="SET", value=0))
 
-Nocon = ETL if single_echo else 1
+Nocon = ETL if single_echo else len(TI) # Number of contrast, either TI or TE
 
 for ocon_i in range(Nocon): # Contrast, outer loop. Either single echo TE dimension or TI dimension
-    se_kernel = se_kernels[ocon_i]
+    if single_echo: # Only reason we have multiple SE kernels is to have multi-contrast single-echo
+        se_kernel = se_kernels[ocon_i]
+    else:
+        se_kernel = se_kernels[0]
 
-    if single_echo:
+    if single_echo or len(TI) > 0:
         seq.add_block(make_label(type="SET", label="SET", value=ocon_i))
 
     for avg_i in range(nsa):  # Averages
@@ -161,8 +164,8 @@ for ocon_i in range(Nocon): # Contrast, outer loop. Either single echo TE dimens
 
             for ky_i in range(-Ndummy, Ny):  # Phase encodes
 
-                if TI > 0:
-                    irk.add_kernel()
+                if len(TI) > 0:
+                    irkernels[ocon_i].add_kernel()
 
                 if ky_i < 0:
                     se_kernel.add_kernel(Ny//2, slc_i, False)
@@ -202,7 +205,7 @@ if detailed_rep:
 
 if write_seq:
     seq.set_definition(key="FOV", value=fov)
-    if TI > 0:
+    if len(TI) > 0:
         seq.set_definition(key="Name", value="irse2d")
     else:
         seq.set_definition(key="Name", value="mcse2d")
@@ -213,8 +216,8 @@ if write_seq:
     seq.set_definition(key="ReconMatrixSize", value=[Nx, Ny, 1])
     seq.set_definition(key="SliceOrientation", value=slice_orientation)
     
-    if TI > 0:
-        seq_filename += f"_TI{int(TI*1e3)}"
+    # if TI > 0:
+    #     seq_filename += f"_TI{int(TI*1e3)}"
 
     seq_path = os.path.join(seq_folder, f'{seq_filename}.seq')
     seq.write(seq_path)  # Save to disk
