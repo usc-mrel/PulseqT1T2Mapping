@@ -233,7 +233,9 @@ class SEKernel:
             seq.add_block(self.gy_pre[ky_i])
             
             if is_acq:
-                seq.add_block(make_label(type="SET", label="SET", value=eco_i))
+                if self.Neco > 1: # Don't set SET label if there is only one echo. It could be a single echo multi contrast seq, we don't wanna overwrite.
+                    seq.add_block(make_label(type="SET", label="SET", value=eco_i))
+
                 seq.add_block(self.gx, self.adc)
             else:
                 seq.add_block(self.gx)

@@ -1,10 +1,10 @@
 { 
     "output_folder": "T1T2Mapping_seqfiles/",
-    "file_name": "MCSET2Mapping",
+    "file_name": "SESET2Mapping",
     "TE": 15e-3,
     "ETL": 32,
-    "single_echo": false,
-    "TR": 5,
+    "single_echo": true,
+    "TR": 1,
     "TI": 0,
     "fov_inplane": [256e-3, 256e-3],
     "slice_thickness": 6e-3,

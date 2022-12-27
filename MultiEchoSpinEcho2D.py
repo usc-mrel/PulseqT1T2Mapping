@@ -56,6 +56,7 @@ TE  = params['TE']     # Echo time [s]
 ETL = params['ETL']    # Echo Train Length
 TR  = params['TR']     # Repetition time [s]
 TI  = params['TI']     # Inversion time [s]
+single_echo  = params['single_echo']     # Is single echo multi contrast?
 
 slice_orientation = params['slice_orientation'] # "TRA", "COR", "SAG" 
 z = params['slice_pos']
@@ -71,7 +72,12 @@ nsa = 1  # Number of averages
 TE = TE*np.arange(1, ETL+1)#[11e-3, 22e-3, 33e-3]#  # [s]
 
 n_slices = len(z)
-flip90 = 90
+
+# Sanity check parameters
+
+# Can not have single echo multi contrast SE with IRSE
+if single_echo and TI > 0:
+    raise ValueError("Can not have single echo multi contrast SE with IRSE.")
 
 # ## **SYSTEM LIMITS**
 # Set the hardware limits and initialize sequence object
@@ -100,14 +106,35 @@ if TI > 0:
 TI_dur = irk.duration() if TI > 0 else 0
 
 # ## **DELAYS**
-se_kernel = SEKernel(seq, params)
+delay_TR = []
+se_kernels = []
 
-delay_TR = (TR 
+if ETL == 1 or not single_echo:
+    se_kernels.append(SEKernel(seq, params))
+
+    TRd = (TR 
     - TI_dur 
-    - se_kernel.duration()
+    - se_kernels[-1].duration()
     )
 
-delay_TR = make_delay(rnd2GRT(delay_TR))
+    delay_TR.append(make_delay(rnd2GRT(TRd)))
+
+else:
+
+    dummy_params = params.copy()
+    dummy_params['ETL'] = 1
+
+    for TE_ in TE:
+        dummy_params['TE'] = TE_
+        se_kernels.append(SEKernel(seq, dummy_params))
+
+        TRd = (TR 
+            - TI_dur 
+            - se_kernels[-1].duration()
+        )
+
+        delay_TR.append(make_delay(rnd2GRT(TRd)))
+
 
 
 # ## **CONSTRUCT SEQUENCE**
@@ -116,32 +143,34 @@ seq.add_block(make_label(label="REV", type="SET", value=1))
 
 seq.add_block(make_label(label="PAR", type="SET", value=0))
 
+Nocon = ETL if single_echo else 1
 
-for avg_i in range(nsa):  # Averages
+for ocon_i in range(Nocon): # Contrast, outer loop. Either single echo TE dimension or TI dimension
+    se_kernel = se_kernels[ocon_i]
 
-    if avg_i == 0:
-        seq.add_block(make_label(type="SET", label="AVG", value=0))
-    else:
-        seq.add_block(make_label(type="INC", label="AVG", value=1))
+    if single_echo:
+        seq.add_block(make_label(type="SET", label="SET", value=ocon_i))
 
-    for slc_i in range(n_slices):  # Slices
-        if slc_i == 0:
-            seq.add_block(make_label(type="SET", label="SLC", value=0))
-        else:
-            seq.add_block(make_label(type="INC", label="SLC", value=1))
+    for avg_i in range(nsa):  # Averages
 
-        for ky_i in range(-Ndummy, Ny):  # Phase encodes
+        seq.add_block(make_label(type="SET", label="AVG", value=avg_i))
 
-            if TI > 0:
-                irk.add_kernel()
+        for slc_i in range(n_slices):  # Slices
+            seq.add_block(make_label(type="SET", label="SLC", value=slc_i))
 
-            if ky_i < 0:
-                se_kernel.add_kernel(Ny//2, slc_i, False)
-            else:
-                seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
-                se_kernel.add_kernel(ky_i, slc_i, True)
 
-            seq.add_block(delay_TR)
+            for ky_i in range(-Ndummy, Ny):  # Phase encodes
+
+                if TI > 0:
+                    irk.add_kernel()
+
+                if ky_i < 0:
+                    se_kernel.add_kernel(Ny//2, slc_i, False)
+                else:
+                    seq.add_block(make_label(type="SET", label="LIN", value=ky_i))
+                    se_kernel.add_kernel(ky_i, slc_i, True)
+
+                seq.add_block(delay_TR[ocon_i])
 
 
 
@@ -180,7 +209,7 @@ if write_seq:
 
     seq.set_definition(key="TE", value=TE)
     seq.set_definition(key="TR", value=TR)
-    seq.set_definition(key="FA", value=flip90)
+    seq.set_definition(key="FA", value=90)
     seq.set_definition(key="ReconMatrixSize", value=[Nx, Ny, 1])
     seq.set_definition(key="SliceOrientation", value=slice_orientation)
     
