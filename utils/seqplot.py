@@ -533,5 +533,5 @@ def plot_bokeh(
             # fig1.savefig("seq_plot1.jpg")
         
         if plot_now:
-            show(column(spb, sizing_mode="scale_both"), browser='chrome', sizing_mode="scale_both")
+            show(column(spb, sizing_mode="scale_both"), browser='chromium', sizing_mode="scale_both")
             plt.show()
