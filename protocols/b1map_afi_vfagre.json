@@ -5,8 +5,8 @@
     "TR": 30e-3,
     "fov_inplane": [256e-3, 256e-3],
     "slice_thickness": 4e-3,
-    "kz_os_steps": 4,
-    "matrix_size": [64, 64, 10],
+    "kz_os_steps": 8,
+    "matrix_size": [64, 64, 20],
     "slice_orientation": "TRA",
     "flip_angle": [60],
     "exc_pulse_type": "slr",
@@ -15,5 +15,5 @@
     "Ndummy": 100,
     "reset_block": false,
     "afi": true,
-    "TR2": 60e-3
+    "TR2": 120e-3
 }

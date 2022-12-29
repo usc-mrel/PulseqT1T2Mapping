@@ -5,7 +5,7 @@
     "ETL": 1,
     "single_echo": false,
     "TR": 5000e-3,
-    "TI": [50e-3, 200e-3, 4500e-3],
+    "TI": [50e-3, 100e-3, 200e-3, 400e-3, 800e-3, 1600e-3, 4500e-3],
     "fov_inplane": [256e-3, 256e-3],
     "slice_thickness": 6e-3,
     "matrix_size": [128, 128, 1],

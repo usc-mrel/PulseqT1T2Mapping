@@ -64,6 +64,7 @@ seq_filename = params['file_name']
 seq_folder   = params['output_folder']
 
 reset_block = params['reset_block']
+is_afi      = params['afi']
 
 
 # Sanity check the input params
@@ -85,7 +86,15 @@ system = Opts(
 
 seq = pp.Sequence(system)  # Create a new sequence object
 
-A = (300)*1e-6*system.gamma # Spoiler area in Hz [mT.ms/m] -> [Hz.s/m]
+# Crasher area's for VFA and AFI are set according to:
+# 1. Yarnykh VL. Optimal radiofrequency and gradient spoiling for improved accuracy of T1 and B1 measurements 
+# using fast steady-state techniques. Magnetic Resonance in Medicine. 2010;63(6):1610-1626. doi:10.1002/mrm.22394
+
+if is_afi:
+    A = (450)*1e-6*system.gamma # Spoiler area in Hz [mT.ms/m] -> [Hz.s/m]
+else:
+    A = (280)*1e-6*system.gamma # Spoiler area in Hz [mT.ms/m] -> [Hz.s/m]
+
 delta_k = 1 / fov[0]
 
 params_gre = params.copy()
@@ -111,20 +120,9 @@ assert np.all(TRd >= 0), "Required TR can not be achieved."
 delay_TR = make_delay(TRd)
 
 
-is_afi = params['afi']
 if is_afi:
     phi0 = 39 # AFI RF spoiling increment
     Ntr = int(params['TR2']/params['TR'])
-    # params_gre2 = params_gre.copy()
-    # params_gre2['TR'] = params['TR2']
-    # GREKernel2 = FISPKernel(seq, params_gre2, ((2*A+1)*Ntr-1)/2)
-
-    # TR2 = params['TR2']
-    # TR2d = rnd2GRT(
-    #         TR2
-    #         - GREKernel2.duration()
-    # )
-    # delay_TR2 = make_delay(TR2d)
 
 else:
     phi0 = 169  # 117 is conventional RF spoiling increment, 169 is for VFA T1 mapping
@@ -160,9 +158,6 @@ for fa_i in range(len(alpha)):
                 # RF/ADC Phase update
                 rf_spoil_upd = 0.5*phi0*(n_i*n_i + n_i + 2)*np.pi/180
                 n_i+=1
-                # if tr_i==1:
-                #     n_i+=(TR2//TR-1)           
-
 
                 if ky_i < 0: # Dummy TRs
                     GREKernel.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False)
@@ -180,7 +175,7 @@ for fa_i in range(len(alpha)):
 
                 if is_afi:
                     rf_spoil_upd = 0.5*phi0*(n_i*n_i + n_i + 2)*np.pi/180
-                    # n_i+=Ntr # Skip the virtual pulse idxs
+
                     n_i+=1
                     if ky_i < 0: # Dummy TRs
                         GREKernel.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False)
@@ -198,19 +193,6 @@ for fa_i in range(len(alpha)):
                             GREKernel.add_kernel(ky_i, kz_i, rf_spoil_upd, is_acq=False, play_rf=False)
 
                         seq.add_block(delay_TR)
-
-
-                # if is_afi:
-                #     rf_spoil_upd = 0.5*phi0*(n_i*n_i + n_i + 2)*np.pi/180
-                #     n_i+=Ntr
-                #     if ky_i < 0: # Dummy TRs
-                #         GREKernel2.add_kernel(Ny//2, Nz//2, rf_spoil_upd, is_acq=False)
-                #     else:
-                #         seq.add_block(make_label(type="SET", label="SET", value=1))
-                #         GREKernel2.add_kernel(ky_i, kz_i, rf_spoil_upd)
-
-                    # seq.add_block(delay_TR2)
-
 
         
 
