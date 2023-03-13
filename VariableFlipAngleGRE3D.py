@@ -36,6 +36,7 @@ user_opts = load_params("user_opts_vfagre", "./")
 show_diag    = user_opts['show_diag']
 write_seq    = user_opts['write_seq']
 detailed_rep = user_opts['detailed_rep']
+sys_filename = user_opts["sys_filename"]
 param_filename = user_opts["param_filename"]
 
 # Load parameter file
@@ -73,7 +74,7 @@ if params['afi'] and len(alpha) > 1:
     alpha = [alpha[0]]
 
 # Set system limits
-sys_params = load_params("lospecs", "./systems")
+sys_params = load_params(sys_filename, "./systems")
 system = Opts(
     max_grad = sys_params['max_grad'], grad_unit="mT/m",
     max_slew = sys_params['max_slew'], slew_unit="T/m/s",
@@ -99,7 +100,7 @@ delta_k = 1 / fov[0]
 
 params_gre = params.copy()
 params_gre['flip_angle'] = params['flip_angle'][0]
-GREKernel = FISPKernel(seq, params_gre, spoiler_area=A, spoiler_axes='xyz')
+GREKernel = FISPKernel(seq, params_gre, spoiler_area=A, spoiler_axes='xz')
 
 # RESET Block
 ResBlock = None

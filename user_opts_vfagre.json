@@ -2,5 +2,6 @@
     "show_diag": true,
     "write_seq": true,
     "detailed_rep": false,
-    "param_filename": "b1map_afi_vfagre"
+    "sys_filename": "cons_lospecs",
+    "param_filename": "t1map_single_vfagre"
 }
