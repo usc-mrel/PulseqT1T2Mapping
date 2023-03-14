@@ -2,6 +2,8 @@ from pypulseq.make_sinc_pulse import make_sinc_pulse
 from pypulseq.make_arbitrary_rf import make_arbitrary_rf
 from pypulseq.calc_duration import calc_duration
 from pypulseq.make_trapezoid import make_trapezoid
+from pypulseq.make_extended_trapezoid import make_extended_trapezoid
+from pypulseq.make_extended_trapezoid_area import make_extended_trapezoid_area
 from pypulseq.make_delay import make_delay
 from pypulseq.make_adc import make_adc
 from pypulseq.Sequence.sequence import Sequence
@@ -31,6 +33,8 @@ class FISPKernel:
         dt = system.rf_raster_time
 
         exc_pulse_type = params['exc_pulse_type'] # 'slr', 'sinc'
+
+        spoiler_area_peraxis = spoiler_area/sqrt(len(spoiler_axes))
 
         # Design RF
         if exc_pulse_type == 'slr':
@@ -70,16 +74,24 @@ class FISPKernel:
         # -----------------------------------------
 
         delta_k = 1 / fov[0]
-        gx = make_trapezoid(
+
+        # Template readout grad
+        gx_tmp = make_trapezoid(
             channel='x', flat_area=Nx * delta_k, flat_time=ro_duration, system=system
+        )
+
+        gx_times = np.cumsum([0, gx_tmp.rise_time, gx_tmp.flat_time+system.adc_dead_time]) # CARE: adc_dead_time requirement might be a hack
+        gx_amps  = [0, gx_tmp.amplitude, gx_tmp.amplitude]
+        gx = make_extended_trapezoid(
+            channel='x', amplitudes=gx_amps, times=gx_times, system=system
         )
 
         # TODO: Oversampling.
         adc = make_adc(
-            num_samples=Nx, duration=gx.flat_time, delay=gx.rise_time, system=system
+            num_samples=Nx, duration=gx_tmp.flat_time, delay=gx_tmp.rise_time, system=system
         )
         gx_pre = make_trapezoid(
-            channel='x', area=-gx.area / 2, system=system
+            channel='x', area=-gx_tmp.area / 2, system=system
         )
 
         # ky Phase Encode
@@ -96,12 +108,19 @@ class FISPKernel:
                 system=system,
             ))
 
-            gy_rew.append(make_trapezoid(
-                channel='y',
-                area=-phase_areas[ky_i],
-                duration=calc_duration(gx_pre),
-                system=system,
-            ))
+            # Handle the case when there is a rewinder and a spoiler in y-axis
+            if 'y' in spoiler_axes:
+                gz_rew.append(
+                    make_trapezoid(channel='y', area=spoiler_area_peraxis-phase_areas[ky_i], system=system)
+                )
+            else:
+                gy_rew.append(make_trapezoid(
+                    channel='y',
+                    area=-phase_areas[ky_i],
+                    duration=calc_duration(gx_pre),
+                    system=system,
+                ))
+
 
             gy_pre[ky_i].id = seq.register_grad_event(gy_pre[ky_i])
             gy_rew[ky_i].id = seq.register_grad_event(gy_rew[ky_i])
@@ -117,11 +136,16 @@ class FISPKernel:
         Tz_enc = calc_duration(gz_enc_largest)
 
         # Gradient spoiling
-        spoiler_area_peraxis = spoiler_area/sqrt(len(spoiler_axes))
         spoiler_grads = []
 
-        for ax in spoiler_axes:
-            spoiler_grads.append(make_trapezoid(channel=ax, area=spoiler_area_peraxis, system=system))
+        # X-spoiler, assume there will always be an x-spoiler
+        (gx_spoil,_,_) = make_extended_trapezoid_area(
+            channel='x', area=spoiler_area_peraxis, grad_start=gx.waveform[-1], grad_end=0, system=system
+        )
+        spoiler_grads.append(gx_spoil)
+
+        # for ax in spoiler_axes:
+        #     spoiler_grads.append(make_trapezoid(channel=ax, area=spoiler_area_peraxis, system=system))
         
         # gx_spoil = make_trapezoid(channel='x', area=spoiler_area_peraxis, system=system)
 
@@ -138,7 +162,7 @@ class FISPKernel:
 
         # Register fixed grad events for speedup
         gx_pre.id = seq.register_grad_event(gx_pre)
-        gx.id = seq.register_grad_event(gx)
+        gx.id, gx.shape_IDs = seq.register_grad_event(gx)
 
         # Partition encoding preparation
         gz_enc = []
@@ -148,13 +172,21 @@ class FISPKernel:
                 make_trapezoid(channel='z',area=areaZ[kz_i], 
                 duration=Tz_enc, system=system)
             )
-            gz_rew.append(
-                make_trapezoid(channel='z',area=-(areaZ[kz_i] + gz.area/2), 
-                duration=Tz_enc, system=system)
-            )
+            # Handle the case when there is a rewinder and a spoiler in z-axis
+            rew_area = -(areaZ[kz_i] + gz.area/2)
+            if 'z' in spoiler_axes:
+                gz_rew.append(
+                    make_trapezoid(channel='z', area=spoiler_area_peraxis+rew_area, system=system)
+                )
+            else:
+                gz_rew.append(
+                    make_trapezoid(channel='z',area=rew_area, 
+                    duration=Tz_enc, system=system)
+                )
 
             gz_enc[kz_i].id = seq.register_grad_event(gz_enc[kz_i])
             gz_rew[kz_i].id = seq.register_grad_event(gz_rew[kz_i])
+
 
         # Store necessary variables in class
         self.seq = seq
@@ -180,13 +212,15 @@ class FISPKernel:
         self.flip_angle = new_FA
 
     def duration(self):
+        # To reduce the grad switching, we combined the rewinders and spoilers (if any), for y and z, in the gX_rew.
+        # They should be renamed to gX_post, to avoid confusion. Now, we only play gspoilers[0] (x-spoiler), but we kept the others
+        # in case we want to go back to old logic for some reason, for the time being.
         tot_dur = (
             self.TE
             + calc_duration(self.gz)/2
             + calc_duration(self.gx)/2
-            # + calc_duration(self.gx_spoil, self.gz_rew[0], self.gy_rew[0])
-            + calc_duration(self.gz_rew[0], self.gy_rew[0])
-            + calc_duration(*(self.gspoilers))
+            + calc_duration(self.gz_rew[0], self.gy_rew[0], self.gspoilers[0])
+            # + calc_duration(*(self.gspoilers))
         )
         return tot_dur
 
@@ -212,6 +246,6 @@ class FISPKernel:
             seq.add_block(self.gx)
 
         # seq.add_block(self.gx_spoil, self.gy_rew[ky_i], self.gz_rew[kz_i])
-        seq.add_block(self.gy_rew[ky_i], self.gz_rew[kz_i])
-        seq.add_block(*(self.gspoilers))
+        seq.add_block(self.gspoilers[0], self.gy_rew[ky_i], self.gz_rew[kz_i])
+        # seq.add_block(*(self.gspoilers))
 
