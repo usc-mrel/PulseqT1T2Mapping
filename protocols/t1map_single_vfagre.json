@@ -2,7 +2,7 @@
     "output_folder": "T1T2Mapping_seqfiles/",
     "file_name": "VFAT1Mapping",
     "TE": [4e-3], 
-    "TR": 20e-3,
+    "TR": 23e-3,
     "fov_inplane": [256e-3, 256e-3],
     "slice_thickness": 2e-3,
     "kz_os_steps": 16,

@@ -1,5 +1,5 @@
 {
-    "max_grad": 15,
+    "max_grad": 13,
     "max_slew": 35,
     "grad_raster_time" :  10e-6,
     "rf_raster_time"   :   1e-6,
