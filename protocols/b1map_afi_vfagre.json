@@ -2,7 +2,7 @@
     "output_folder": "T1T2Mapping_seqfiles/",
     "file_name": "AFI",
     "TE": [4e-3], 
-    "TR": 30e-3,
+    "TR": 32e-3,
     "fov_inplane": [256e-3, 256e-3],
     "slice_thickness": 4e-3,
     "kz_os_steps": 8,
@@ -15,5 +15,5 @@
     "Ndummy": 100,
     "reset_block": false,
     "afi": true,
-    "TR2": 120e-3
+    "TR2": 96e-3
 }
