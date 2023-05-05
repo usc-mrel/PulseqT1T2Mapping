@@ -34,6 +34,7 @@ user_opts = load_params("user_opts_mese", "./")
 show_diag    = user_opts['show_diag']
 write_seq    = user_opts['write_seq']
 detailed_rep = user_opts['detailed_rep']
+sys_filename = user_opts["sys_filename"]
 param_filename = user_opts["param_filename"]
 
 
@@ -85,7 +86,7 @@ if single_echo and is_ir:
 # Set the hardware limits and initialize sequence object
 
 # Set system limits
-sys_params = load_params("lospecs", "./systems")
+sys_params = load_params(sys_filename, "./systems")
 system = Opts(
     max_grad = sys_params['max_grad'], grad_unit="mT/m",
     max_slew = sys_params['max_slew'], slew_unit="T/m/s",
