@@ -234,6 +234,8 @@ if write_seq:
     seq_filename+=f"_TR{int(TR*1e3)}"
     if is_afi:
         seq_filename+=f"_N{int(Ntr)}"
+    seq_filename+=f"_slc{int(Nkz)}"
+
 
     seq_path = os.path.join(seq_folder, f'{seq_filename}.seq')
     seq.write(seq_path)  # Save to disk
