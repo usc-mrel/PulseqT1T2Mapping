@@ -5,24 +5,19 @@
 
 ## TODO: AFI proper steady-state handling.
 
+import argparse
 import os
-from math import ceil, pi
+from math import pi
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pypulseq as pp
-from pypulseq.calc_duration import calc_duration
-from pypulseq.calc_rf_center import calc_rf_center
-from pypulseq.make_arbitrary_rf import make_arbitrary_rf
 from pypulseq.make_delay import make_delay
 from pypulseq.make_label import make_label
-from pypulseq.make_trapezoid import make_trapezoid
 from pypulseq.opts import Opts
-from sigpy.mri.rf import slr
 from Kernels.FISPKernel import FISPKernel
 from Kernels.MagSatKernel import MagSatKernel
 
-from utils import seqplot
 from utils.grad_timing import rnd2GRT
 from utils.load_params import load_params
 
@@ -30,17 +25,19 @@ from utils.load_params import load_params
 # USER OPTIONS
 # =============
 
-# Load user options
-user_opts = load_params("user_opts_vfagre", "./")
+# Load cmd parameters
+parser = argparse.ArgumentParser(description="3D Variable Flip Angle GRE sequence generator")
+parser.add_argument('-p', '--protocol', type=str, default="b1map_afi_vfagre", help='Protocol name to load parameters from. Default: b1map_afi_vfagre')
 
-show_diag    = user_opts['show_diag']
-write_seq    = user_opts['write_seq']
-detailed_rep = user_opts['detailed_rep']
-sys_filename = user_opts["sys_filename"]
-param_filename = user_opts["param_filename"]
+args = parser.parse_args()
 
-# Load parameter file
-params = load_params(param_filename)
+params = load_params(args.protocol, "./")
+
+show_diag    = params['show_diag']
+write_seq    = params['write_seq']
+detailed_rep = params['detailed_rep']
+sys_filename = params["sys_filename"]
+
 
 # ======
 # SETUP
@@ -209,7 +206,8 @@ else:
 # VISUALIZATION
 # ===============
 if show_diag:
-    seqplot.plot_bokeh(seq, time_range=((150)*TR, (200)*TR), time_disp="ms", grad_disp="mT/m", plot_now=True)
+    # seqplot.plot_bokeh(seq, time_range=((150)*TR, (200)*TR), time_disp="ms", grad_disp="mT/m", plot_now=True)
+    seq.plot(time_range=(0, 50*TR), time_disp="ms", grad_disp="mT/m", plot_now=True)
 
 
 if detailed_rep:
@@ -234,12 +232,12 @@ if write_seq:
     seq_filename+=f"_TR{int(TR*1e3)}"
     if is_afi:
         seq_filename+=f"_N{int(Ntr)}"
-    seq_filename+=f"_slc{int(Nkz)}"
+    seq_filename+=f"_slc{int(Nkz)}_tbwp{params['time_bw_product']}"
 
-
+    os.makedirs(seq_folder, exist_ok=True)
     seq_path = os.path.join(seq_folder, f'{seq_filename}.seq')
     seq.write(seq_path)  # Save to disk
 
-    from utils.seqinstall import seqinstall
-    seqinstall(seq_path)
-
+    if params['install']:
+        from utils.seqinstall import seqinstall
+        seqinstall(seq_path, remote_path=params['install_path'])

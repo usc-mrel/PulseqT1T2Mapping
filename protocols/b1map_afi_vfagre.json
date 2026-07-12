@@ -7,7 +7,6 @@
     "slice_thickness": 4e-3,
     "kz_os_steps": 8,
     "matrix_size": [64, 64, 20],
-    "slice_orientation": "TRA",
     "flip_angle": [60],
     "exc_pulse_type": "slr",
     "slice_pos": [0e-3],
@@ -15,5 +14,12 @@
     "Ndummy": 100,
     "reset_block": false,
     "afi": true,
-    "TR2": 96e-3
+    "TR2": 96e-3,
+    
+    "show_diag": false,
+    "write_seq": true,
+    "detailed_rep": true,
+    "sys_filename": "lospecs",
+    "install": false,
+    "install_path": "/server/sdata/Bilal/svr_seqs"
 }

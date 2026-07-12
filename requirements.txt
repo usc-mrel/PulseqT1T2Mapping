@@ -1,0 +1,4 @@
+pypulseq
+matplotlib
+sigpy
+PySide6

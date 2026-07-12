@@ -1,19 +1,21 @@
-from pypulseq.make_sinc_pulse import make_sinc_pulse
-from pypulseq.make_arbitrary_rf import make_arbitrary_rf
-from pypulseq.calc_duration import calc_duration
-from pypulseq.make_trapezoid import make_trapezoid
-from pypulseq.make_extended_trapezoid import make_extended_trapezoid
-from pypulseq.make_extended_trapezoid_area import make_extended_trapezoid_area
-from pypulseq.make_delay import make_delay
-from pypulseq.make_adc import make_adc
-from pypulseq.Sequence.sequence import Sequence
+from pypulseq import (
+    make_sinc_pulse,
+    make_arbitrary_rf,
+    calc_duration,
+    make_trapezoid,
+    make_extended_trapezoid,
+    make_extended_trapezoid_area,
+    make_delay,
+    make_adc,
+    Sequence
+)
 from math import ceil, pi, sqrt
 from sigpy.mri.rf import slr
 import numpy as np
-from utils.grad_timing import rnd2GRT
+from .grad_timing import rnd2GRT
 
 class FISPKernel:
-    def __init__(self, seq: Sequence, params: dict, 
+    def __init__(self, seq: Sequence, params: dict,
                  spoiler_area: float, spoiler_axes: str = 'x'
                  ) -> None:
 
@@ -28,8 +30,8 @@ class FISPKernel:
 
         system = seq.system
         # Create alpha-degree slice selection pulse and gradient
-        tbwp = 8 # Time-BW product of sinc
-        Trf = 2e-3 # [s] RF duration
+        tbwp = params['time_bw_product'] # Time-BW product of sinc
+        Trf = params['rf_duration'] # [s] RF duration
         dt = system.rf_raster_time
 
         exc_pulse_type = params['exc_pulse_type'] # 'slr', 'sinc'
@@ -46,7 +48,7 @@ class FISPKernel:
 
             rf, gz = make_arbitrary_rf(
                 signal=signal, slice_thickness=fov[2],
-                bandwidth=bw, flip_angle=alpha * pi / 180, 
+                bandwidth=bw, flip_angle=alpha * pi / 180,
                 system=system, return_gz=True, use="excitation"
                 )
 
@@ -58,7 +60,6 @@ class FISPKernel:
                 flip_angle=alpha * pi / 180,
                 duration=Trf,
                 slice_thickness=fov[2],
-                apodization=0.5,
                 time_bw_product=tbwp,
                 system=system,
                 return_gz=True,
@@ -110,7 +111,7 @@ class FISPKernel:
 
             # Handle the case when there is a rewinder and a spoiler in y-axis
             if 'y' in spoiler_axes:
-                gz_rew.append(
+                gy_rew.append(
                     make_trapezoid(channel='y', area=spoiler_area_peraxis-phase_areas[ky_i], system=system)
                 )
             else:
@@ -146,7 +147,7 @@ class FISPKernel:
 
         # for ax in spoiler_axes:
         #     spoiler_grads.append(make_trapezoid(channel=ax, area=spoiler_area_peraxis, system=system))
-        
+
         # gx_spoil = make_trapezoid(channel='x', area=spoiler_area_peraxis, system=system)
 
         TEd = rnd2GRT(
@@ -169,7 +170,7 @@ class FISPKernel:
         gz_rew = []
         for kz_i in range(Nkz):
             gz_enc.append(
-                make_trapezoid(channel='z',area=areaZ[kz_i], 
+                make_trapezoid(channel='z',area=areaZ[kz_i],
                 duration=Tz_enc, system=system)
             )
             # Handle the case when there is a rewinder and a spoiler in z-axis
@@ -180,7 +181,7 @@ class FISPKernel:
                 )
             else:
                 gz_rew.append(
-                    make_trapezoid(channel='z',area=rew_area, 
+                    make_trapezoid(channel='z',area=rew_area,
                     duration=Tz_enc, system=system)
                 )
 
@@ -248,4 +249,3 @@ class FISPKernel:
         # seq.add_block(self.gx_spoil, self.gy_rew[ky_i], self.gz_rew[kz_i])
         seq.add_block(self.gspoilers[0], self.gy_rew[ky_i], self.gz_rew[kz_i])
         # seq.add_block(*(self.gspoilers))
-
