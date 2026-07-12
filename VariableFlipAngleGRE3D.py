@@ -18,7 +18,7 @@ from pypulseq.opts import Opts
 from Kernels.FISPKernel import FISPKernel
 from Kernels.MagSatKernel import MagSatKernel
 
-from utils.grad_timing import rnd2GRT
+from Kernels.grad_timing import rnd2GRT
 from utils.load_params import load_params
 
 # =============
@@ -206,8 +206,7 @@ else:
 # VISUALIZATION
 # ===============
 if show_diag:
-    # seqplot.plot_bokeh(seq, time_range=((150)*TR, (200)*TR), time_disp="ms", grad_disp="mT/m", plot_now=True)
-    seq.plot(time_range=(0, 50*TR), time_disp="ms", grad_disp="mT/m", plot_now=True)
+    seq.plot(time_range=(0, 50*TR), time_disp="ms", grad_disp="mT/m", plot_now=True, stacked=True)
 
 
 if detailed_rep:

@@ -9,7 +9,7 @@ from pypulseq.make_extended_trapezoid import make_extended_trapezoid
 from pypulseq.calc_duration import calc_duration
 from scipy.io import savemat
 import numpy as np
-from utils.grad_timing import rnd2GRT
+from Kernels.grad_timing import rnd2GRT
 
 
 class SEKernel:

@@ -18,7 +18,7 @@ from pypulseq.opts import Opts
 from pypulseq.Sequence.sequence import Sequence
 from Kernels.IRKernel import IRKernel
 from Kernels.SEKernel import SEKernel
-from utils.grad_timing import rnd2GRT
+from Kernels.grad_timing import rnd2GRT
 
 import json
 
@@ -187,9 +187,7 @@ else:
 # ## **PLOTTING TIMNG DIAGRAM**
 
 if show_diag:
-    # seq.plot(time_range=(0, TR*20), time_disp='ms', grad_disp='mT/m', plot_now=False)
-    from utils import seqplot
-    seqplot.plot_bokeh(seq, time_range=(0, TR*2), time_disp='ms', grad_disp='mT/m', plot_now=True)
+    seq.plot(time_range=(0, TR*20), time_disp='ms', grad_disp='mT/m', plot_now=True)
 
 
 ## Generate Sequence Report

@@ -1,13 +1,6 @@
-from pypulseq.make_sinc_pulse import make_sinc_pulse
-from pypulseq.calc_duration import calc_duration
-from pypulseq.make_trapezoid import make_trapezoid
-from pypulseq.make_delay import make_delay
-from pypulseq.Sequence.sequence import Sequence
-from pypulseq.add_gradients import add_gradients
-from pypulseq.make_adiabatic_pulse import make_adiabatic_pulse
+from pypulseq import calc_duration, make_trapezoid, make_delay, Sequence, add_gradients, make_adiabatic_pulse
 
-from utils.grad_timing import rnd2GRT
-from math import pi
+from .grad_timing import rnd2GRT
 
 class IRKernel:
     def __init__(self, seq: Sequence, slice_thickness: float, TI: float) -> None:
